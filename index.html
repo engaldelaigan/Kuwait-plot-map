@@ -161,7 +161,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     letter-spacing: 0.05em;
     margin-top: 6px;
   }
-  #panel dt:first-child { margin-top: 0; }
+  #panel > div:first-child dt { margin-top: 0; }
   #panel dd {
     margin: 1px 0 0;
     font-weight: 550;
@@ -414,31 +414,40 @@ svg.leaflet-zoom-animated{will-change:transform;}
     #measureBtn,
     #clearBtn,
     #langBtn {
-      padding: 8px 12px;
-      font-size: 13px;
+      padding: 6px 9px;
+      font-size: 11px;
     }
-    #searchInput, #addrForm select { padding: 8px; font-size: 14px; }
+    #searchInput, #addrForm select { padding: 6px 8px; font-size: 12px; }
     #addrForm { flex: 1 1 100%; }
-    #snapWrap, #perpWrap { font-size: 13px; }
-    #snapChk, #perpChk { width: 17px; height: 17px; }
+    #snapWrap, #perpWrap { font-size: 11px; }
 
+    /* Bottom sheet. Two columns because the values are short -- in one column
+       most of the width sat empty and the sheet ran half the screen tall. */
     #panel {
       left: 0;
       right: 0;
       bottom: 0;
       max-width: none;
-      max-height: 45vh;
+      max-height: 34vh;
       overflow-y: auto;
       border-radius: 12px 12px 0 0;
       border-left: none;
       border-right: none;
       border-bottom: none;
-      padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
-      font-size: 13px;
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+      font-size: 12px;
+      column-count: 2;
+      column-gap: 16px;
     }
     html[dir="rtl"] #panel { left: 0; right: 0; }
-    #panel dt { font-size: 11px; }
-    #panel button { padding: 10px; font-size: 14px; }
+    #panel dt { font-size: 9px; margin-top: 5px; }
+    #panel > div { break-inside: avoid; -webkit-column-break-inside: avoid; }
+    #panel button {
+      padding: 8px;
+      font-size: 13px;
+      column-span: all;
+      margin-top: 8px;
+    }
 
     #mag {
       width: 132px;
@@ -500,11 +509,6 @@ svg.leaflet-zoom-animated{will-change:transform;}
     </div>
     <div style="display:flex; align-items:center; gap:10px;">
       <span id="status">connecting&hellip;</span>
-      <span id="legend">
-        <i style="background:#2d7a3e"></i><span data-i18n="legPlot">plot</span>
-        <i style="background:#e67e22"></i><span data-i18n="legStreet">street edge</span>
-        <i style="background:#8e44ad"></i><span data-i18n="legRoad">road centre</span>
-      </span>
       <label id="snapWrap"><input type="checkbox" id="snapChk" checked /> <span data-i18n="snapStart">Snap start point</span></label>
       <label id="perpWrap"><input type="checkbox" id="perpChk" /> <span data-i18n="perp">&perp; to edge</span></label>
       <button id="measureBtn" type="button" data-i18n="measure">Measure</button>
@@ -571,7 +575,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       noMatch: "لا توجد نتائج",
       noMatchHint: (q) => `لم يتم العثور على "${q}". جرّب رقم القسيمة أو القطعة/القسيمة مثل ٢/٦٤.`,
       plotsInView: (n) => `${n} قسيمة في النطاق`,
-      limitReached: (n) => `${n} قسيمة (الحد الأقصى — قرّب أكثر)`,
+      limitReached: () => "قرّب أكثر",
       zoomIn: "قرّب لعرض القسائم",
       loadFailed: "فشل التحميل",
       source: "المصدر: بيانات بلدية الكويت المساحية",
@@ -608,7 +612,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       noMatch: "no match",
       noMatchHint: (q) => `Nothing found for "${q}". Try a parcel number or block/parcel like 2/64.`,
       plotsInView: (n) => `${n} plots in view`,
-      limitReached: (n) => `${n} plots (limit reached — zoom in)`,
+      limitReached: () => "zoom in",
       zoomIn: "zoom in to load plots",
       loadFailed: "failed to load",
       source: "Source: Kuwait Municipality cadastral data",
@@ -649,13 +653,17 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // Satellite imagery is the ground truth for checking whether plot polygons
   // land on the real parcels; OSM is drawn/traced data and can itself be
   // offset, so it's a poor reference for judging alignment.
+  // maxNativeZoom is the deepest real tile; maxZoom lets Leaflet keep zooming
+  // past it by upscaling, so plot boundaries can be inspected closely instead
+  // of the map refusing to zoom further.
   const tiles = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
+    maxNativeZoom: 19,
+    maxZoom: 22,
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
   const satellite = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    { maxZoom: 19, attribution: "Imagery &copy; Esri" }
+    { maxNativeZoom: 19, maxZoom: 22, attribution: "Imagery &copy; Esri" }
   );
 
   const roadsLayer = L.layerGroup();
@@ -1171,17 +1179,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
           .map((s) => `<b>${s.n}</b> &mdash; ${fmtNum(s.length, "m")}`)
           .join("<br>")}</dd>`
       : "<dd>&mdash;</dd>";
-    panelEl.innerHTML = `
-      <dt>${t("parcel")}</dt><dd>${props.parcel_no ?? "&mdash;"}</dd>
-      <dt>${t("block")}</dt><dd>${props.block_no ?? "&mdash;"}</dd>
-      <dt>${t("paci")}</dt><dd>${props.paci_no?.trim() || "&mdash;"}</dd>
-      <dt>${t("neighborhood")}</dt><dd>${nbh ?? "&mdash;"}</dd>
-      <dt>${t("area")}</dt><dd>${fmtNum(props.measured_area, "m&sup2;")}</dd>
-      <dt>${t("perimeter")}</dt><dd>${fmtNum(props.shape_length, "m")}</dd>
-      <dt>${t("sides")}</dt>${sidesHtml}
-      <dt>${t("globalId")}</dt><dd style="font-weight:400;font-size:10px;word-break:break-all;">${props.global_id ?? "&mdash;"}</dd>
-      <dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button></dd>
-    `;
+    // Each label/value pair is wrapped so the two-column mobile layout can't
+    // strand a value in the other column from its label.
+    const row = (label, value) => `<div><dt>${label}</dt><dd>${value}</dd></div>`;
+    panelEl.innerHTML =
+      row(t("parcel"), props.parcel_no ?? "&mdash;") +
+      row(t("block"), props.block_no ?? "&mdash;") +
+      row(t("paci"), props.paci_no?.trim() || "&mdash;") +
+      row(t("neighborhood"), nbh ?? "&mdash;") +
+      row(t("area"), fmtNum(props.measured_area, "m&sup2;")) +
+      row(t("perimeter"), fmtNum(props.shape_length, "m")) +
+      `<div><dt>${t("sides")}</dt>${sidesHtml}</div>` +
+      `<div><dt>${t("globalId")}</dt><dd style="font-weight:400;font-size:10px;word-break:break-all;">${props.global_id ?? "&mdash;"}</dd></div>` +
+      `<dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button></dd>`;
     panelEl.classList.add("visible");
     showSideLabels(props, layer);
     document.getElementById("printBtn").addEventListener("click", () => printPlot(props));
@@ -1292,10 +1302,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
     );
     const features = rowsToFeatures(rows);
     renderPlots(features, { highlightGlobalId });
-    statusEl.textContent =
-      features.length >= PLOT_LIMIT
-        ? t("limitReached", features.length)
-        : t("plotsInView", features.length);
+    // Plot counts were noise in the header; only the "too many, zoom in"
+    // case still says anything, because that one is actionable.
+    statusEl.textContent = features.length >= PLOT_LIMIT ? t("limitReached", features.length) : "";
     return features;
   }
 
