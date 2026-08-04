@@ -1,0 +1,1571 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Kuwait Plots — Live Viewer</title>
+<style>
+/* --- Leaflet 1.9.4 core CSS, inlined so a blocked/failed CDN stylesheet
+   request can't silently break the map's layout (JS still loading fine while
+   this fails is exactly what produced a blank white page) --- */
+.leaflet-pane,.leaflet-tile,.leaflet-marker-icon,.leaflet-marker-shadow,.leaflet-tile-container,.leaflet-pane>svg,.leaflet-pane>canvas,.leaflet-zoom-box,.leaflet-image-layer,.leaflet-layer{position:absolute;left:0;top:0;}
+.leaflet-container{overflow:hidden;}
+.leaflet-tile,.leaflet-marker-icon,.leaflet-marker-shadow{-webkit-user-select:none;-moz-user-select:none;user-select:none;-webkit-user-drag:none;}
+.leaflet-tile::selection{background:transparent;}
+.leaflet-safari .leaflet-tile{image-rendering:-webkit-optimize-contrast;}
+.leaflet-safari .leaflet-tile-container{width:1600px;height:1600px;-webkit-transform-origin:0 0;}
+.leaflet-marker-icon,.leaflet-marker-shadow{display:block;}
+.leaflet-container .leaflet-overlay-pane svg{max-width:none !important;max-height:none !important;}
+.leaflet-container .leaflet-marker-pane img,.leaflet-container .leaflet-shadow-pane img,.leaflet-container .leaflet-tile-pane img,.leaflet-container img.leaflet-image-layer,.leaflet-container .leaflet-tile{max-width:none !important;max-height:none !important;width:auto;padding:0;}
+.leaflet-container img.leaflet-tile{mix-blend-mode:plus-lighter;}
+.leaflet-container.leaflet-touch-zoom{-ms-touch-action:pan-x pan-y;touch-action:pan-x pan-y;}
+.leaflet-container.leaflet-touch-drag{-ms-touch-action:pinch-zoom;touch-action:none;touch-action:pinch-zoom;}
+.leaflet-container.leaflet-touch-drag.leaflet-touch-zoom{-ms-touch-action:none;touch-action:none;}
+.leaflet-container{-webkit-tap-highlight-color:transparent;}
+.leaflet-container a{-webkit-tap-highlight-color:rgba(51,181,229,0.4);}
+.leaflet-tile{filter:inherit;visibility:hidden;}
+.leaflet-tile-loaded{visibility:inherit;}
+.leaflet-zoom-box{width:0;height:0;box-sizing:border-box;z-index:800;}
+.leaflet-overlay-pane svg{-moz-user-select:none;}
+.leaflet-pane{z-index:400;}
+.leaflet-tile-pane{z-index:200;}
+.leaflet-overlay-pane{z-index:400;}
+.leaflet-shadow-pane{z-index:500;}
+.leaflet-marker-pane{z-index:600;}
+.leaflet-tooltip-pane{z-index:650;}
+.leaflet-popup-pane{z-index:700;}
+.leaflet-map-pane canvas{z-index:100;}
+.leaflet-map-pane svg{z-index:200;}
+.leaflet-control{position:relative;z-index:800;pointer-events:visiblePainted;pointer-events:auto;}
+.leaflet-top,.leaflet-bottom{position:absolute;z-index:1000;pointer-events:none;}
+.leaflet-top{top:0;}
+.leaflet-right{right:0;}
+.leaflet-bottom{bottom:0;}
+.leaflet-left{left:0;}
+.leaflet-control{float:left;clear:both;}
+.leaflet-right .leaflet-control{float:right;}
+.leaflet-top .leaflet-control{margin-top:10px;}
+.leaflet-bottom .leaflet-control{margin-bottom:10px;}
+.leaflet-left .leaflet-control{margin-left:10px;}
+.leaflet-right .leaflet-control{margin-right:10px;}
+.leaflet-fade-anim .leaflet-popup{opacity:0;transition:opacity 0.2s linear;}
+.leaflet-fade-anim .leaflet-map-pane .leaflet-popup{opacity:1;}
+.leaflet-zoom-animated{transform-origin:0 0;}
+svg.leaflet-zoom-animated{will-change:transform;}
+.leaflet-zoom-anim .leaflet-zoom-animated{transition:transform 0.25s cubic-bezier(0,0,0.25,1);}
+.leaflet-zoom-anim .leaflet-tile,.leaflet-pan-anim .leaflet-tile{transition:none;}
+.leaflet-zoom-anim .leaflet-zoom-hide{visibility:hidden;}
+.leaflet-interactive{cursor:pointer;}
+.leaflet-grab{cursor:grab;}
+.leaflet-crosshair,.leaflet-crosshair .leaflet-interactive{cursor:crosshair;}
+.leaflet-popup-pane,.leaflet-control{cursor:auto;}
+.leaflet-dragging .leaflet-grab,.leaflet-dragging .leaflet-grab .leaflet-interactive,.leaflet-dragging .leaflet-marker-draggable{cursor:grabbing;}
+.leaflet-marker-icon,.leaflet-marker-shadow,.leaflet-image-layer,.leaflet-pane>svg path,.leaflet-tile-container{pointer-events:none;}
+.leaflet-marker-icon.leaflet-interactive,.leaflet-image-layer.leaflet-interactive,.leaflet-pane>svg path.leaflet-interactive,svg.leaflet-image-layer.leaflet-interactive path{pointer-events:visiblePainted;pointer-events:auto;}
+.leaflet-container{background:#ddd;outline-offset:1px;}
+.leaflet-container a{color:#0078A8;}
+.leaflet-zoom-box{border:2px dotted #38f;background:rgba(255,255,255,0.5);}
+.leaflet-container{font-family:"Helvetica Neue",Arial,Helvetica,sans-serif;font-size:12px;line-height:1.5;}
+.leaflet-bar{box-shadow:0 1px 5px rgba(0,0,0,0.65);border-radius:4px;}
+.leaflet-bar a{background-color:#fff;border-bottom:1px solid #ccc;width:26px;height:26px;line-height:26px;display:block;text-align:center;text-decoration:none;color:black;}
+.leaflet-bar a,.leaflet-control-layers-toggle{background-position:50% 50%;background-repeat:no-repeat;display:block;}
+.leaflet-bar a:hover,.leaflet-bar a:focus{background-color:#f4f4f4;}
+.leaflet-bar a:first-child{border-top-left-radius:4px;border-top-right-radius:4px;}
+.leaflet-bar a:last-child{border-bottom-left-radius:4px;border-bottom-right-radius:4px;border-bottom:none;}
+.leaflet-bar a.leaflet-disabled{cursor:default;background-color:#f4f4f4;color:#bbb;}
+.leaflet-touch .leaflet-bar a{width:30px;height:30px;line-height:30px;}
+.leaflet-control-zoom-in,.leaflet-control-zoom-out{font:bold 18px 'Lucida Console',Monaco,monospace;text-indent:1px;}
+.leaflet-control-attribution{background:rgba(255,255,255,0.8);margin:0;padding:0 5px;color:#333;line-height:1.4;font-size:11px;}
+/* Layer-control styles -- these were missing from the inlined subset, which
+   left the labels as bare black text on top of the imagery. */
+.leaflet-control-layers{box-shadow:0 1px 5px rgba(0,0,0,0.4);background:#fff;border-radius:5px;}
+.leaflet-control-layers-toggle{width:36px;height:36px;background-image:url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2317211b' stroke-width='1.8' stroke-linejoin='round'%3E%3Cpolygon points='12 2 2 7 12 12 22 7 12 2'/%3E%3Cpolyline points='2 17 12 22 22 17'/%3E%3Cpolyline points='2 12 12 17 22 12'/%3E%3C/svg%3E");background-size:22px 22px;background-position:50% 50%;background-repeat:no-repeat;}
+.leaflet-control-layers .leaflet-control-layers-list,.leaflet-control-layers-expanded .leaflet-control-layers-toggle{display:none;}
+.leaflet-control-layers-expanded .leaflet-control-layers-list{display:block;position:relative;}
+.leaflet-control-layers-expanded{padding:6px 10px 6px 6px;color:#333;background:#fff;}
+.leaflet-control-layers-selector{margin-top:2px;position:relative;top:1px;}
+.leaflet-control-layers label{display:block;font-size:13px;color:#17211b;margin:1px 0;}
+.leaflet-control-layers-separator{height:0;border-top:1px solid #ddd;margin:5px -10px 5px -6px;}
+.leaflet-popup{position:absolute;text-align:center;margin-bottom:20px;}
+.leaflet-popup-content-wrapper{padding:1px;text-align:left;border-radius:12px;background:white;color:#333;box-shadow:0 3px 14px rgba(0,0,0,0.4);}
+.leaflet-popup-content{margin:13px 24px 13px 20px;line-height:1.3;font-size:13px;min-height:1px;}
+.leaflet-popup-tip-container{width:40px;height:20px;position:absolute;left:50%;margin-top:-1px;margin-left:-20px;overflow:hidden;pointer-events:none;}
+.leaflet-popup-tip{width:17px;height:17px;padding:1px;margin:-10px auto 0;pointer-events:auto;transform:rotate(45deg);background:white;box-shadow:0 3px 14px rgba(0,0,0,0.4);}
+.leaflet-container a.leaflet-popup-close-button{position:absolute;top:0;right:0;border:none;text-align:center;width:24px;height:24px;font:16px/24px Tahoma,Verdana,sans-serif;color:#757575;text-decoration:none;background:transparent;}
+</style>
+<style>
+  :root {
+    --ink: #17211b;
+    --paper: #f6f4ee;
+    --accent: #3c6e47;
+    --accent-soft: #a9c9ab;
+    --line: #d8d3c4;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  #app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  header {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    background: var(--paper);
+    z-index: 10;
+  }
+  header h1 {
+    font-size: 15px;
+    margin: 0;
+    font-weight: 650;
+    letter-spacing: 0.01em;
+  }
+  #status {
+    font-size: 12px;
+    color: #5b6b60;
+    font-variant-numeric: tabular-nums;
+  }
+  #map {
+    position: absolute;
+    inset: 0;
+  }
+  #panel {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    z-index: 500;
+    background: rgba(246, 244, 238, 0.96);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    max-width: 240px;
+    display: none;
+  }
+  #panel.visible { display: block; }
+  #panel dt {
+    color: #5b6b60;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 6px;
+  }
+  #panel dt:first-child { margin-top: 0; }
+  #panel dd {
+    margin: 1px 0 0;
+    font-weight: 550;
+  }
+  .leaflet-popup-content { font-size: 12px; }
+  #err {
+    display: none;
+    padding: 10px 14px;
+    background: #f3d9d4;
+    color: #7a2b1f;
+    font-size: 13px;
+    border-bottom: 1px solid #e0b5ac;
+  }
+  #err.visible { display: block; }
+  #measureBtn {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  #measureBtn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .measure-label {
+    background: rgba(23, 33, 27, 0.9);
+    color: #fff;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+    border: none;
+    box-shadow: none;
+  }
+  .measure-label::before { display: none; }
+  /* Magnifier: a small inset map that follows the cursor at a higher zoom, so
+     the distance label can't hide the line you're snapping to. Parked in a
+     fixed corner rather than under the cursor, for the same reason. */
+  #mag {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    width: 190px;
+    height: 190px;
+    z-index: 600;
+    border: 2px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    display: none;
+    pointer-events: none;
+    background: #ddd;
+  }
+  #mag.visible { display: block; }
+  #magMap { width: 100%; height: 100%; }
+  #mag .cross-h, #mag .cross-v {
+    position: absolute;
+    background: rgba(255, 255, 255, 0.85);
+    z-index: 500;
+  }
+  #mag .cross-h { left: 0; right: 0; top: 50%; height: 1px; }
+  #mag .cross-v { top: 0; bottom: 0; left: 50%; width: 1px; }
+  #mag .mag-cap {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    background: rgba(23, 33, 27, 0.8);
+    color: #fff;
+    font-size: 10px;
+    text-align: center;
+    padding: 2px 0;
+    z-index: 500;
+  }
+  .measure-label { cursor: pointer; }
+  #searchWrap {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex: 1 1 380px;
+    max-width: 560px;
+    flex-wrap: wrap;
+  }
+  #modeTabs { display: flex; }
+  #modeTabs button {
+    font: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 5px 9px;
+    border: 1px solid var(--line);
+    background: #fff;
+    color: #5b6b60;
+    cursor: pointer;
+  }
+  #modeTabs button:first-child { border-radius: 6px 0 0 6px; }
+  #modeTabs button:last-child { border-radius: 0 6px 6px 0; border-inline-start: none; }
+  #modeTabs button.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  #addrForm { display: flex; gap: 5px; flex: 1; min-width: 0; }
+  /* An explicit display rule beats the UA stylesheet's [hidden] { display:none },
+     so the hidden state has to be restated here or both forms show at once. */
+  #addrForm[hidden], #searchForm[hidden] { display: none; }
+  #addrForm select {
+    font: inherit;
+    font-size: 12px;
+    padding: 5px 6px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--ink);
+    flex: 1;
+    min-width: 0;
+  }
+  #addrForm select:disabled { color: #9aa79f; background: #f2f0ea; }
+  #langBtn {
+    font: inherit;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 5px 9px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--ink);
+    cursor: pointer;
+  }
+  html[dir="rtl"] body { font-family: "Segoe UI", Tahoma, "Noto Naskh Arabic", sans-serif; }
+  html[dir="rtl"] #panel { left: auto; right: 10px; }
+  html[dir="rtl"] #mag { right: auto; left: 10px; }
+  #searchForm {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+  }
+  #searchInput {
+    font: inherit;
+    font-size: 12px;
+    padding: 5px 9px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--ink);
+    flex: 1;
+    min-width: 0;
+  }
+  #searchForm button {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+  }
+  #legend {
+    font-size: 11px;
+    color: #5b6b60;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  #legend i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-left: 7px;
+    box-shadow: 0 0 0 1.5px #fff;
+  }
+  #snapWrap, #perpWrap {
+    font-size: 12px;
+    color: #5b6b60;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .side-num {
+    background: #c0392b;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 20px;
+    text-align: center;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+  }
+  #panel button {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+    width: 100%;
+  }
+
+  /* While measuring, stop the browser treating a drag as a page scroll. */
+  #map.measuring { touch-action: none; }
+
+  /* ---- Phones ----------------------------------------------------------
+     The header carries a lot for a 375px screen, so it stacks: title row,
+     then search, then the measuring controls. The info panel becomes a
+     bottom sheet instead of a floating card, and tap targets grow. */
+  @media (max-width: 760px) {
+    header {
+      padding: 7px 10px;
+      gap: 7px;
+    }
+    header h1 { font-size: 13px; }
+    /* Below ~520px the title costs an entire row for no information. */
+    @media (max-width: 520px) {
+      header h1 { display: none; }
+    }
+    header > div {
+      width: 100%;
+      flex-wrap: wrap;
+      gap: 8px !important;
+    }
+    #searchWrap {
+      order: -1;
+      width: 100%;
+      max-width: none;
+      flex: 1 1 100%;
+    }
+    #legend { display: none; }
+    #status { font-size: 11px; }
+    /* The measuring options only matter once Measure is on, so they stay out
+       of the way until then -- that's a whole row back on a phone. */
+    #snapWrap, #perpWrap { display: none; }
+    body.measuring-on #snapWrap,
+    body.measuring-on #perpWrap { display: flex; }
+    #modeTabs button,
+    #searchForm button,
+    #measureBtn,
+    #clearBtn,
+    #langBtn {
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+    #searchInput, #addrForm select { padding: 8px; font-size: 14px; }
+    #addrForm { flex: 1 1 100%; }
+    #snapWrap, #perpWrap { font-size: 13px; }
+    #snapChk, #perpChk { width: 17px; height: 17px; }
+
+    #panel {
+      left: 0;
+      right: 0;
+      bottom: 0;
+      max-width: none;
+      max-height: 45vh;
+      overflow-y: auto;
+      border-radius: 12px 12px 0 0;
+      border-left: none;
+      border-right: none;
+      border-bottom: none;
+      padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+      font-size: 13px;
+    }
+    html[dir="rtl"] #panel { left: 0; right: 0; }
+    #panel dt { font-size: 11px; }
+    #panel button { padding: 10px; font-size: 14px; }
+
+    #mag {
+      width: 132px;
+      height: 132px;
+      bottom: auto;
+      top: 10px;
+      right: 10px;
+    }
+    html[dir="rtl"] #mag { left: 10px; right: auto; }
+    .leaflet-control-layers-expanded { font-size: 12px; }
+  }
+
+  /* Print sheet: hidden on screen, the only thing shown on paper. */
+  #printArea { display: none; }
+  @media print {
+    #app { display: none !important; }
+    #printArea {
+      display: block;
+      padding: 0 4mm;
+      color: #000;
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    #printArea h1 { font-size: 17pt; margin: 0 0 2px; }
+    #printArea .sub { margin: 0 0 14px; color: #444; font-size: 11pt; }
+    #printArea table { border-collapse: collapse; width: 100%; font-size: 10pt; }
+    #printArea .meta th {
+      text-align: left; width: 18%; color: #444; font-weight: 600; padding: 4px 6px 4px 0;
+    }
+    #printArea .meta td { padding: 4px 14px 4px 0; }
+    #printArea .mono { font-family: ui-monospace, Consolas, monospace; font-size: 8.5pt; }
+    #printArea .diagram { margin: 16px 0; text-align: center; }
+    #printArea .sides { width: 45%; margin-top: 4px; }
+    #printArea .sides th, #printArea .sides td {
+      border: 1px solid #999; padding: 3px 8px; text-align: left;
+    }
+    #printArea .foot { margin-top: 18px; font-size: 8.5pt; color: #555; }
+    @page { margin: 14mm; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1 data-i18n="title">Kuwait Plots</h1>
+    <div id="searchWrap">
+      <div id="modeTabs">
+        <button type="button" id="modePaci" class="active" data-i18n="modePaci">PACI</button>
+        <button type="button" id="modeAddr" data-i18n="modeAddr">Address</button>
+      </div>
+      <form id="searchForm" autocomplete="off">
+        <input id="searchInput" type="search" data-i18n-ph="paciPlaceholder" />
+        <button type="submit" data-i18n="search">Search</button>
+      </form>
+      <div id="addrForm" hidden>
+        <select id="selNbh"></select>
+        <select id="selBlk" disabled></select>
+        <select id="selPar" disabled></select>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span id="status">connecting&hellip;</span>
+      <span id="legend">
+        <i style="background:#2d7a3e"></i><span data-i18n="legPlot">plot</span>
+        <i style="background:#e67e22"></i><span data-i18n="legStreet">street edge</span>
+        <i style="background:#8e44ad"></i><span data-i18n="legRoad">road centre</span>
+      </span>
+      <label id="snapWrap"><input type="checkbox" id="snapChk" checked /> <span data-i18n="snapStart">Snap start point</span></label>
+      <label id="perpWrap"><input type="checkbox" id="perpChk" /> <span data-i18n="perp">&perp; to edge</span></label>
+      <button id="measureBtn" type="button" data-i18n="measure">Measure</button>
+      <button id="clearBtn" type="button" data-i18n="clear">Clear</button>
+      <button id="langBtn" type="button">EN</button>
+    </div>
+  </header>
+  <div id="err"></div>
+  <div style="position: relative; flex: 1; min-height: 0;">
+    <div id="map"></div>
+    <dl id="panel"></dl>
+    <div id="mag">
+      <div id="magMap"></div>
+      <div class="cross-h"></div>
+      <div class="cross-v"></div>
+      <div class="mag-cap">magnifier</div>
+    </div>
+  </div>
+</div>
+<div id="printArea"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const SUPABASE_URL = "https://qfvhegueptllwojefxly.supabase.co";
+  const ANON_KEY =
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmdmhlZ3VlcHRsbHdvamVmeGx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU2NDcxODMsImV4cCI6MjEwMTIyMzE4M30.QDg2hb1bYEBwKKWZ5Y9Hjgpc_woAR1SLZ5jvezTZJ3k";
+
+  const statusEl = document.getElementById("status");
+  const errEl = document.getElementById("err");
+  const panelEl = document.getElementById("panel");
+
+  // ---- Language -----------------------------------------------------------
+  // Arabic is the primary language, so it's the default and the document flips
+  // to RTL for it. Every user-facing string goes through t().
+  const I18N = {
+    ar: {
+      title: "قسائم الكويت",
+      modePaci: "الرقم الآلي",
+      modeAddr: "العنوان",
+      search: "بحث",
+      paciPlaceholder: "الرقم الآلي أو رقم القسيمة (مثال ٢/٦٤)",
+      selNbh: "اختر المنطقة",
+      selBlk: "اختر القطعة",
+      selPar: "اختر القسيمة",
+      snapStart: "تثبيت نقطة البداية",
+      perp: "عمودي على الحد",
+      measure: "قياس",
+      clear: "مسح",
+      parcel: "القسيمة",
+      block: "القطعة",
+      paci: "الرقم الآلي",
+      neighborhood: "المنطقة",
+      area: "المساحة",
+      perimeter: "المحيط",
+      sides: "أطوال الأضلاع",
+      globalId: "المعرف",
+      print: "طباعة القسيمة",
+      side: "الضلع",
+      length: "الطول",
+      legPlot: "قسيمة",
+      legStreet: "حد الشارع",
+      legRoad: "محور الشارع",
+      searching: "جارٍ البحث…",
+      noMatch: "لا توجد نتائج",
+      noMatchHint: (q) => `لم يتم العثور على "${q}". جرّب رقم القسيمة أو القطعة/القسيمة مثل ٢/٦٤.`,
+      plotsInView: (n) => `${n} قسيمة في النطاق`,
+      limitReached: (n) => `${n} قسيمة (الحد الأقصى — قرّب أكثر)`,
+      zoomIn: "قرّب لعرض القسائم",
+      loadFailed: "فشل التحميل",
+      source: "المصدر: بيانات بلدية الكويت المساحية",
+      printed: "تاريخ الطباعة",
+    },
+    en: {
+      title: "Kuwait Plots",
+      modePaci: "PACI",
+      modeAddr: "Address",
+      search: "Search",
+      paciPlaceholder: "PACI no. or block/parcel (e.g. 2/64)",
+      selNbh: "Select neighbourhood",
+      selBlk: "Select block",
+      selPar: "Select parcel",
+      snapStart: "Snap start point",
+      perp: "⊥ to edge",
+      measure: "Measure",
+      clear: "Clear",
+      parcel: "Parcel",
+      block: "Block",
+      paci: "PACI No.",
+      neighborhood: "Neighbourhood",
+      area: "Measured area",
+      perimeter: "Perimeter",
+      sides: "Side lengths",
+      globalId: "Global ID",
+      print: "Print this plot",
+      side: "Side",
+      length: "Length",
+      legPlot: "plot",
+      legStreet: "street edge",
+      legRoad: "road centre",
+      searching: "searching…",
+      noMatch: "no match",
+      noMatchHint: (q) => `Nothing found for "${q}". Try a parcel number or block/parcel like 2/64.`,
+      plotsInView: (n) => `${n} plots in view`,
+      limitReached: (n) => `${n} plots (limit reached — zoom in)`,
+      zoomIn: "zoom in to load plots",
+      loadFailed: "failed to load",
+      source: "Source: Kuwait Municipality cadastral data",
+      printed: "Printed",
+    },
+  };
+
+  let lang = localStorage.getItem("kwplots-lang") || "ar";
+  const t = (key, ...args) => {
+    const v = I18N[lang][key];
+    return typeof v === "function" ? v(...args) : v;
+  };
+
+  function applyLang() {
+    document.documentElement.lang = lang;
+    document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
+    document.getElementById("langBtn").textContent = lang === "ar" ? "EN" : "عربي";
+    for (const el of document.querySelectorAll("[data-i18n]")) {
+      el.textContent = t(el.dataset.i18n);
+    }
+    for (const el of document.querySelectorAll("[data-i18n-ph]")) {
+      el.placeholder = t(el.dataset.i18nPh);
+    }
+    // Re-render anything built from JS strings.
+    refreshSelectPlaceholders();
+    if (selectedProps) showPanel(selectedProps, selectedLayer);
+  }
+
+  document.getElementById("langBtn").addEventListener("click", () => {
+    lang = lang === "ar" ? "en" : "ar";
+    localStorage.setItem("kwplots-lang", lang);
+    applyLang();
+    setTimeout(() => map.invalidateSize(), 50);
+  });
+
+  const map = L.map("map", { zoomControl: true }).setView([29.2146, 48.0706], 15);
+
+  // Satellite imagery is the ground truth for checking whether plot polygons
+  // land on the real parcels; OSM is drawn/traced data and can itself be
+  // offset, so it's a poor reference for judging alignment.
+  const tiles = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors",
+  }).addTo(map);
+  const satellite = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: 19, attribution: "Imagery &copy; Esri" }
+  );
+
+  const roadsLayer = L.layerGroup();
+  const blocksLayer = L.layerGroup().addTo(map);
+  L.control
+    .layers(
+      { "OpenStreetMap": tiles, Satellite: satellite },
+      { "Street edges (blocks)": blocksLayer, "Road centrelines": roadsLayer },
+      // Expanded is handy on a desktop; on a phone it covers a third of the
+      // map, so it collapses to an icon there.
+      { collapsed: window.innerWidth <= 760 }
+    )
+    .addTo(map);
+
+  // Belt-and-suspenders: force Leaflet to recompute its size once the
+  // surrounding flex layout has definitely settled, and surface tile-load
+  // failures instead of leaving a silent blank map.
+  setTimeout(() => map.invalidateSize(), 200);
+  window.addEventListener("resize", () => map.invalidateSize());
+  let tileErrorShown = false;
+  tiles.on("tileerror", () => {
+    if (tileErrorShown) return;
+    tileErrorShown = true;
+    errEl.textContent =
+      "Map tile images failed to load (network/ad-blocker likely blocking tile.openstreetmap.org). Plot data below may still be correct.";
+    errEl.classList.add("visible");
+  });
+
+  // ---- Measuring ruler ----------------------------------------------------
+  // Drag to measure. Listeners are registered in the CAPTURE phase because
+  // Leaflet's interactive layers call stopPropagation on pointerdown (to stop
+  // the map panning when you click a feature) -- since the plot polygons cover
+  // the whole view, a bubble-phase listener on the container never fires.
+  // Pointer events (not mouse) so this works with touch on a phone too.
+  //
+  // Snapping: the cursor latches onto nearby plot corners first, then plot
+  // edges and road lines, so measuring "from this corner to that street" is
+  // exact rather than eyeballed.
+  // Snap targets carry a `kind` so the indicator can show what you're locking
+  // onto: plot boundaries vs street edges (block boundaries) are different
+  // things and it matters which one a measurement ends on.
+  const snapVerts = []; // { p:[lng,lat], kind }
+  const snapSegs = []; // { a:[lng,lat], b:[lng,lat], kind }
+  // Road centrelines are kept apart: they only count as snap targets while
+  // that layer is actually switched on. Snapping to geometry you can't see is
+  // just a wrong answer you can't diagnose.
+  const roadSnapSegs = [];
+  const SNAP_COLORS = { plot: "#2d7a3e", street: "#e67e22", road: "#8e44ad" };
+
+  let measuring = false;
+  let measureStart = null; // anchor while a line is being drawn
+  let dragging = false; // true = drag mode, false = two-click mode
+  let measureLine = null;
+  let measureLabel = null;
+  let snapMarker = null;
+  const measurements = L.layerGroup().addTo(map); // finished lines persist here
+
+  const snapChk = document.getElementById("snapChk");
+  const M_PER_DEG_LAT = 110574;
+  const mPerDegLon = (lat) => 111320 * Math.cos((lat * Math.PI) / 180);
+
+  function metersPerPixel() {
+    return (
+      (156543.03392 * Math.cos((map.getCenter().lat * Math.PI) / 180)) /
+      Math.pow(2, map.getZoom())
+    );
+  }
+
+  // Returns { ll, kind } -- kind is null when nothing was in range.
+  function snapLatLng(latlng) {
+    if (!snapChk.checked) return { ll: latlng, kind: null };
+    const tol = 14 * metersPerPixel();
+    const mx = mPerDegLon(latlng.lat);
+    const px = latlng.lng * mx;
+    const py = latlng.lat * M_PER_DEG_LAT;
+
+    let best = null, bestKind = null, bestD = tol;
+    for (const v of snapVerts) {
+      const d = Math.hypot(px - v.p[0] * mx, py - v.p[1] * M_PER_DEG_LAT);
+      if (d < bestD) { bestD = d; best = L.latLng(v.p[1], v.p[0]); bestKind = v.kind; }
+    }
+    if (best) return { ll: best, kind: bestKind }; // corners beat edges
+
+    bestD = tol;
+    const sources = map.hasLayer(roadsLayer) ? [snapSegs, roadSnapSegs] : [snapSegs];
+    for (const list of sources)
+      for (const s of list) {
+        const ax = s.a[0] * mx, ay = s.a[1] * M_PER_DEG_LAT;
+        const bx = s.b[0] * mx, by = s.b[1] * M_PER_DEG_LAT;
+        const dx = bx - ax, dy = by - ay;
+        const len2 = dx * dx + dy * dy;
+        let t = len2 === 0 ? 0 : ((px - ax) * dx + (py - ay) * dy) / len2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const cx = ax + t * dx, cy = ay + t * dy;
+        const d = Math.hypot(px - cx, py - cy);
+        if (d < bestD) {
+          bestD = d;
+          best = L.latLng(cy / M_PER_DEG_LAT, cx / mx);
+          bestKind = s.kind;
+        }
+      }
+    return best ? { ll: best, kind: bestKind } : { ll: latlng, kind: null };
+  }
+
+  // ---- Perpendicular lock -------------------------------------------------
+  // Plot boundaries rarely run along the compass, so "how far back from the
+  // boundary" only means something measured at a right angle to that boundary.
+  // On anchoring we find the edge the start point sits on and remember its
+  // direction; while drawing, the free end is projected onto the normal of
+  // that edge, so the line is exactly perpendicular however the plot is
+  // oriented.
+  const perpChk = document.getElementById("perpChk");
+  let perpBasis = null; // { ax, ay, nx, ny, mx } in local metre space
+  let perpRefLine = null;
+
+  function nearestSegmentTo(latlng, maxM) {
+    const mx = mPerDegLon(latlng.lat);
+    const px = latlng.lng * mx;
+    const py = latlng.lat * M_PER_DEG_LAT;
+    let best = null;
+    let bestD = maxM;
+    const sources = map.hasLayer(roadsLayer) ? [snapSegs, roadSnapSegs] : [snapSegs];
+    for (const list of sources)
+      for (const s of list) {
+        const ax = s.a[0] * mx, ay = s.a[1] * M_PER_DEG_LAT;
+        const bx = s.b[0] * mx, by = s.b[1] * M_PER_DEG_LAT;
+        const dx = bx - ax, dy = by - ay;
+        const len2 = dx * dx + dy * dy;
+        if (len2 === 0) continue;
+        let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+        if (d < bestD) { bestD = d; best = s; }
+      }
+    return best;
+  }
+
+  function setPerpBasis(anchor) {
+    clearPerpRef();
+    perpBasis = null;
+    const seg = nearestSegmentTo(anchor, 3 * Math.max(1, metersPerPixel()));
+    if (!seg) return;
+    const mx = mPerDegLon(anchor.lat);
+    const dx = (seg.b[0] - seg.a[0]) * mx;
+    const dy = (seg.b[1] - seg.a[1]) * M_PER_DEG_LAT;
+    const len = Math.hypot(dx, dy);
+    if (!len) return;
+    perpBasis = {
+      ax: anchor.lng * mx,
+      ay: anchor.lat * M_PER_DEG_LAT,
+      nx: -dy / len, // unit normal to the edge
+      ny: dx / len,
+      mx,
+    };
+    perpRefLine = L.polyline([[seg.a[1], seg.a[0]], [seg.b[1], seg.b[0]]], {
+      color: "#1f6feb", weight: 4, opacity: 0.75, interactive: false,
+    }).addTo(map);
+  }
+
+  function clearPerpRef() {
+    if (perpRefLine) { map.removeLayer(perpRefLine); perpRefLine = null; }
+  }
+
+  // Projects the cursor onto the normal through the anchor.
+  function applyPerp(raw) {
+    if (!perpBasis || !perpChk.checked) return raw;
+    const { ax, ay, nx, ny, mx } = perpBasis;
+    const vx = raw.lng * mx - ax;
+    const vy = raw.lat * M_PER_DEG_LAT - ay;
+    const t = vx * nx + vy * ny; // signed, so it works both ways off the edge
+    return L.latLng((ay + ny * t) / M_PER_DEG_LAT, (ax + nx * t) / mx);
+  }
+
+  function setSnapMarker(ll, kind) {
+    if (!kind) {
+      if (snapMarker) { map.removeLayer(snapMarker); snapMarker = null; }
+      return;
+    }
+    const color = SNAP_COLORS[kind] || "#c0392b";
+    if (snapMarker) { snapMarker.setLatLng(ll); snapMarker.setStyle({ fillColor: color }); }
+    else
+      snapMarker = L.circleMarker(ll, {
+        radius: 6, color: "#fff", weight: 2, fillColor: color, fillOpacity: 1, interactive: false,
+      }).addTo(map);
+  }
+
+  // Drops the in-progress line only; finished measurements are untouched.
+  function cancelInProgress() {
+    if (measureLine) { map.removeLayer(measureLine); measureLine = null; }
+    if (measureLabel) { map.removeLayer(measureLabel); measureLabel = null; }
+    measureStart = null;
+    dragging = false;
+    perpBasis = null;
+    clearPerpRef();
+  }
+
+  // Moves the in-progress line + label into the persistent layer, as a pair so
+  // deleting one removes both. Right-click the line or click its label to
+  // delete that single measurement; Esc cancels one in progress.
+  function commitMeasurement() {
+    if (!measureLine) return;
+    const pair = L.layerGroup([measureLine]);
+    if (measureLabel) pair.addLayer(measureLabel);
+    measurements.addLayer(pair);
+
+    const del = (ev) => {
+      if (ev?.originalEvent) {
+        ev.originalEvent.preventDefault();
+        ev.originalEvent.stopPropagation();
+      }
+      measurements.removeLayer(pair);
+    };
+    // Right-click always deletes. Left-click only deletes when NOT measuring:
+    // during measuring, the browser fires a `click` after pointerup that would
+    // otherwise land on this label and delete it just as a new line is begun.
+    measureLine.on("contextmenu", del);
+    if (measureLabel) {
+      measureLabel.on("contextmenu", del);
+      measureLabel.on("click", (ev) => { if (!measuring) del(ev); });
+    }
+
+    measureLine = null;
+    measureLabel = null;
+    measureStart = null;
+    dragging = false;
+    perpBasis = null;
+    clearPerpRef();
+  }
+
+  function clearAllMeasurements() {
+    cancelInProgress();
+    measurements.clearLayers();
+    setSnapMarker(null, null);
+  }
+
+  function fmtDistance(m) {
+    return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(2)} m`;
+  }
+
+  const measureBtn = document.getElementById("measureBtn");
+  measureBtn.addEventListener("click", () => {
+    measuring = !measuring;
+    measureBtn.classList.toggle("active", measuring);
+    map.getContainer().style.cursor = measuring ? "crosshair" : "";
+    map.getContainer().classList.toggle("measuring", measuring);
+    document.body.classList.toggle("measuring-on", measuring);
+    magEl.classList.toggle("visible", measuring);
+    if (measuring) {
+      map.dragging.disable();
+      ensureMag();
+      setTimeout(() => magMap.invalidateSize(), 0);
+    } else {
+      map.dragging.enable();
+      cancelInProgress();
+      setSnapMarker(null, null);
+    }
+  });
+
+  // Esc backs out of a half-drawn measurement without touching finished ones.
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && measuring) cancelInProgress();
+  });
+
+  document.getElementById("clearBtn").addEventListener("click", clearAllMeasurements);
+
+  function updateInProgress(ll) {
+    measureLine.setLatLngs([measureStart, ll]);
+    const text = fmtDistance(map.distance(measureStart, ll));
+    const mid = L.latLng((measureStart.lat + ll.lat) / 2, (measureStart.lng + ll.lng) / 2);
+    if (measureLabel) { measureLabel.setLatLng(mid); measureLabel.setContent(text); }
+    else
+      measureLabel = L.tooltip({
+        permanent: true, direction: "top", className: "measure-label", interactive: true,
+      })
+        .setLatLng(mid).setContent(text).addTo(map);
+  }
+
+  // ---- Magnifier ----------------------------------------------------------
+  let magMap = null, magSegs = null, magDot = null, magLastDraw = 0;
+  let magSat = null, magOsm = null;
+  const magEl = document.getElementById("mag");
+
+  function ensureMag() {
+    if (magMap) return;
+    magMap = L.map("magMap", {
+      zoomControl: false, attributionControl: false, dragging: false,
+      scrollWheelZoom: false, doubleClickZoom: false, boxZoom: false,
+      keyboard: false, touchZoom: false, inertia: false,
+    }).setView(map.getCenter(), map.getZoom() + 3);
+    // maxNativeZoom lets these scale past the deepest real tile instead of
+    // going blank, which is what makes it act like a magnifier.
+    magSat = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 22, maxNativeZoom: 19 }
+    );
+    magOsm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 22, maxNativeZoom: 19,
+    });
+    magSegs = L.layerGroup().addTo(magMap);
+    magDot = L.circleMarker(map.getCenter(), {
+      radius: 5, color: "#fff", weight: 2, fillColor: "#c0392b", fillOpacity: 1, interactive: false,
+    }).addTo(magMap);
+    syncMagBase();
+  }
+
+  // The magnifier mirrors whichever basemap the main map is showing.
+  function syncMagBase() {
+    if (!magMap) return;
+    const wantSat = map.hasLayer(satellite);
+    const add = wantSat ? magSat : magOsm;
+    const drop = wantSat ? magOsm : magSat;
+    if (magMap.hasLayer(drop)) magMap.removeLayer(drop);
+    if (!magMap.hasLayer(add)) add.addTo(magMap);
+    magSegs.bringToFront();
+    magDot.bringToFront();
+  }
+  map.on("baselayerchange", syncMagBase);
+
+  function updateMag(ll, kind) {
+    if (!measuring) return;
+    ensureMag();
+    magMap.setView(ll, Math.min(22, map.getZoom() + 3), { animate: false });
+    magDot.setLatLng(ll).setStyle({ fillColor: SNAP_COLORS[kind] || "#c0392b" });
+
+    // Redrawing every candidate line on every mouse move is wasteful; throttle
+    // and only include segments within ~80 m of the cursor.
+    const now = Date.now();
+    if (now - magLastDraw < 70) return;
+    magLastDraw = now;
+    magSegs.clearLayers();
+    const mx = mPerDegLon(ll.lat);
+    const px = ll.lng * mx, py = ll.lat * M_PER_DEG_LAT;
+    const R = 80;
+    for (const s of snapSegs) {
+      const ax = s.a[0] * mx, ay = s.a[1] * M_PER_DEG_LAT;
+      if (Math.abs(ax - px) > R || Math.abs(ay - py) > R) continue;
+      L.polyline([[s.a[1], s.a[0]], [s.b[1], s.b[0]]], {
+        color: SNAP_COLORS[s.kind] || "#999", weight: 2, interactive: false,
+      }).addTo(magSegs);
+    }
+    if (measureStart) {
+      L.polyline([measureStart, ll], {
+        color: "#c0392b", weight: 2, dashArray: "4,3", interactive: false,
+      }).addTo(magSegs);
+    }
+  }
+
+  const mapEl = map.getContainer();
+  let downAt = 0;
+  let downPt = null;
+
+  // Both interaction styles are supported off the same events:
+  //   drag  -> press, move, release (release commits)
+  //   click -> click to anchor, move, click again to commit
+  // A release that was neither a real drag nor far from the press point is
+  // treated as the first click of a two-click measurement.
+  mapEl.addEventListener("pointerdown", (e) => {
+    if (!measuring) return;
+    e.preventDefault();
+    e.stopPropagation();
+    downAt = Date.now();
+    downPt = { x: e.clientX, y: e.clientY };
+
+    const raw = map.mouseEventToLatLng(e);
+    if (measureStart) {
+      // Second click ends the line exactly where you put it -- only the
+      // starting anchor snaps (perpendicular lock still applies if on).
+      updateInProgress(applyPerp(raw));
+      commitMeasurement();
+      return;
+    }
+    const { ll } = snapLatLng(raw);
+    measureStart = ll;
+    dragging = false;
+    setPerpBasis(ll);
+    measureLine = L.polyline([ll, ll], {
+      color: "#c0392b", weight: 3, dashArray: "6,4",
+    }).addTo(map);
+  }, true);
+
+  mapEl.addEventListener("pointermove", (e) => {
+    if (!measuring) return;
+    const raw = map.mouseEventToLatLng(e);
+    if (!measureStart) {
+      // Previewing where the anchor would land -- this end snaps.
+      const { ll, kind } = snapLatLng(raw);
+      setSnapMarker(ll, kind);
+      updateMag(ll, kind);
+      return;
+    }
+    // Free end: no snapping, so it goes exactly where you point it -- unless
+    // perpendicular lock is on, which constrains it to the edge's normal.
+    const end = applyPerp(raw);
+    setSnapMarker(null, null);
+    updateMag(end, null);
+    if (downPt && Math.hypot(e.clientX - downPt.x, e.clientY - downPt.y) > 4) dragging = true;
+    e.preventDefault();
+    e.stopPropagation();
+    updateInProgress(end);
+  }, true);
+
+  mapEl.addEventListener("pointerup", (e) => {
+    if (!measuring) return;
+    e.stopPropagation();
+    const moved = downPt && Math.hypot(e.clientX - downPt.x, e.clientY - downPt.y) > 4;
+    downPt = null;
+    // A genuine drag ends the measurement on release. A simple click leaves
+    // the line anchored so the next click finishes it.
+    if (measureStart && dragging && moved && Date.now() - downAt > 80) commitMeasurement();
+  }, true);
+
+  function fmtNum(n, unit) {
+    return n == null ? "&mdash;" : `${Number(n).toLocaleString(undefined, { maximumFractionDigits: 1 })} ${unit}`;
+  }
+
+  // Sides are numbered 1..n in the order the source stores the boundary, and
+  // the same numbers are drawn on the map at each edge's midpoint, so a row in
+  // the panel can be matched to a physical edge at a glance.
+  //
+  // Lengths come from geom_ktm (projected metres -> plain Euclidean distance
+  // between corners); the midpoint for the label comes from the matching WGS84
+  // ring, since that's what Leaflet draws in.
+  function computeSideDetails(geomKtm, geomWgs) {
+    const ktm = geomKtm?.coordinates?.[0];
+    const wgs = geomWgs?.coordinates?.[0];
+    if (!ktm) return [];
+
+    const sides = [];
+    for (let i = 0; i < ktm.length - 1; i++) {
+      const [x1, y1] = ktm[i];
+      const [x2, y2] = ktm[i + 1];
+      const length = Math.hypot(x2 - x1, y2 - y1);
+      let mid = null;
+      if (wgs && wgs[i] && wgs[i + 1]) {
+        mid = L.latLng((wgs[i][1] + wgs[i + 1][1]) / 2, (wgs[i][0] + wgs[i + 1][0]) / 2);
+      }
+      sides.push({ n: i + 1, length, mid });
+    }
+    return sides;
+  }
+
+  const sideLabels = L.layerGroup().addTo(map);
+  let selectedOutline = null;
+
+  function showSideLabels(props, layer) {
+    sideLabels.clearLayers();
+    if (selectedOutline) { map.removeLayer(selectedOutline); selectedOutline = null; }
+    if (layer) {
+      selectedOutline = L.polyline(layer.getLatLngs()[0].concat([layer.getLatLngs()[0][0]]), {
+        color: "#c0392b", weight: 3, opacity: 0.95,
+      }).addTo(map);
+    }
+    for (const s of props.sides) {
+      if (!s.mid) continue;
+      L.marker(s.mid, {
+        interactive: false,
+        icon: L.divIcon({ className: "side-num", html: String(s.n), iconSize: [20, 20] }),
+      }).addTo(sideLabels);
+    }
+  }
+
+  // A self-contained SVG of the parcel with numbered, dimensioned edges --
+  // drawn from the projected geometry so it prints without needing map tiles.
+  function buildPlotSvg(geomKtm, sides) {
+    const ring = geomKtm?.coordinates?.[0];
+    if (!ring) return "";
+    const xs = ring.map((p) => p[0]);
+    const ys = ring.map((p) => p[1]);
+    const minx = Math.min(...xs), maxx = Math.max(...xs);
+    const miny = Math.min(...ys), maxy = Math.max(...ys);
+    const w = maxx - minx || 1;
+    const h = maxy - miny || 1;
+    const pad = Math.max(w, h) * 0.22;
+    const flipY = (y) => miny + maxy - y; // SVG y grows downward
+    const pts = ring.map(([x, y]) => `${x},${flipY(y)}`).join(" ");
+    const fs = Math.max(w, h) / 16;
+
+    const labels = sides
+      .map((s, i) => {
+        const [x1, y1] = ring[i];
+        const [x2, y2] = ring[i + 1];
+        const mx = (x1 + x2) / 2;
+        const my = flipY((y1 + y2) / 2);
+        const cx = (minx + maxx) / 2;
+        const cy = flipY((miny + maxy) / 2);
+        // Nudge the label outward from the centre so it clears the edge.
+        const dx = mx - cx, dy = my - cy;
+        const len = Math.hypot(dx, dy) || 1;
+        const ox = mx + (dx / len) * fs * 1.1;
+        const oy = my + (dy / len) * fs * 1.1;
+        return `<text x="${ox}" y="${oy}" font-size="${fs}" text-anchor="middle" dominant-baseline="middle" fill="#17211b">${s.n}</text>
+                <text x="${ox}" y="${oy + fs}" font-size="${fs * 0.72}" text-anchor="middle" dominant-baseline="middle" fill="#5b6b60">${s.length.toFixed(2)} m</text>`;
+      })
+      .join("");
+
+    return `<svg viewBox="${minx - pad} ${miny - pad} ${w + 2 * pad} ${h + 2 * pad}" xmlns="http://www.w3.org/2000/svg" width="100%" style="max-height:340px">
+      <polygon points="${pts}" fill="#e8efe6" stroke="#3c6e47" stroke-width="${Math.max(w, h) / 220}" />
+      ${labels}
+    </svg>`;
+  }
+
+  let selectedProps = null;
+  let selectedLayer = null;
+
+  function showPanel(props, layer) {
+    selectedProps = props;
+    selectedLayer = layer;
+    const nbh = lang === "ar"
+      ? props.neighborhood_ar || props.neighborhood_en
+      : props.neighborhood_en || props.neighborhood_ar;
+    const sidesHtml = props.sides.length
+      ? `<dd style="font-weight:400;">${props.sides
+          .map((s) => `<b>${s.n}</b> &mdash; ${fmtNum(s.length, "m")}`)
+          .join("<br>")}</dd>`
+      : "<dd>&mdash;</dd>";
+    panelEl.innerHTML = `
+      <dt>${t("parcel")}</dt><dd>${props.parcel_no ?? "&mdash;"}</dd>
+      <dt>${t("block")}</dt><dd>${props.block_no ?? "&mdash;"}</dd>
+      <dt>${t("paci")}</dt><dd>${props.paci_no?.trim() || "&mdash;"}</dd>
+      <dt>${t("neighborhood")}</dt><dd>${nbh ?? "&mdash;"}</dd>
+      <dt>${t("area")}</dt><dd>${fmtNum(props.measured_area, "m&sup2;")}</dd>
+      <dt>${t("perimeter")}</dt><dd>${fmtNum(props.shape_length, "m")}</dd>
+      <dt>${t("sides")}</dt>${sidesHtml}
+      <dt>${t("globalId")}</dt><dd style="font-weight:400;font-size:10px;word-break:break-all;">${props.global_id ?? "&mdash;"}</dd>
+      <dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button></dd>
+    `;
+    panelEl.classList.add("visible");
+    showSideLabels(props, layer);
+    document.getElementById("printBtn").addEventListener("click", () => printPlot(props));
+  }
+
+  function printPlot(props) {
+    const nbh = lang === "ar"
+      ? props.neighborhood_ar || props.neighborhood_en
+      : props.neighborhood_en || props.neighborhood_ar;
+    const rows = props.sides
+      .map((s) => `<tr><td>${s.n}</td><td>${s.length.toFixed(2)} m</td></tr>`)
+      .join("");
+    document.getElementById("printArea").innerHTML = `
+      <h1>${t("parcel")} ${props.parcel_no ?? ""} &mdash; ${t("block")} ${props.block_no ?? ""}</h1>
+      <p class="sub">${nbh ?? ""}</p>
+      <table class="meta">
+        <tr><th>${t("parcel")}</th><td>${props.parcel_no ?? "—"}</td><th>${t("block")}</th><td>${props.block_no ?? "—"}</td></tr>
+        <tr><th>${t("paci")}</th><td>${props.paci_no?.trim() || "—"}</td><th>${t("globalId")}</th><td class="mono">${props.global_id ?? "—"}</td></tr>
+        <tr><th>${t("area")}</th><td>${props.measured_area ?? "—"} m²</td><th>${t("perimeter")}</th><td>${props.shape_length != null ? Number(props.shape_length).toFixed(2) : "—"} m</td></tr>
+      </table>
+      <div class="diagram">${buildPlotSvg(props.geom_ktm, props.sides)}</div>
+      <table class="sides"><thead><tr><th>${t("side")}</th><th>${t("length")}</th></tr></thead><tbody>${rows}</tbody></table>
+      <p class="foot">${t("source")}. ${t("printed")}: ${new Date().toLocaleString(lang === "ar" ? "ar-KW" : "en-GB")}.</p>
+    `;
+    window.print();
+  }
+
+  const PLOT_LIMIT = 1000;
+  let plotLayer = null;
+
+  function rowsToFeatures(rows) {
+    return rows
+      .filter((r) => r.geom)
+      .map((r) => ({
+        type: "Feature",
+        geometry: r.geom,
+        properties: {
+          global_id: r.global_id,
+          parcel_no: r.parcel_no,
+          paci_no: r.paci_no,
+          block_no: r.block_no,
+          neighborhood_ar: r.neighborhood_ar,
+          neighborhood_en: r.neighborhood_en,
+          measured_area: r.measured_area,
+          shape_area: r.shape_area,
+          shape_length: r.shape_length,
+          geom_ktm: r.geom_ktm,
+          sides: computeSideDetails(r.geom_ktm, r.geom),
+        },
+      }));
+  }
+
+  // Renders a fresh set of plots, replacing whatever was shown before, and
+  // rebuilds the ruler's snap targets to match. Plot snap targets are rebuilt
+  // (not appended) so stale geometry from a previous area can't be snapped to.
+  function renderPlots(features, { highlightGlobalId = null } = {}) {
+    if (plotLayer) map.removeLayer(plotLayer);
+    snapVerts.length = 0;
+    for (let i = snapSegs.length - 1; i >= 0; i--) {
+      if (snapSegs[i].kind === "plot") snapSegs.splice(i, 1);
+    }
+    for (const f of features) {
+      const ring = f.geometry?.coordinates?.[0];
+      if (!ring) continue;
+      for (let i = 0; i < ring.length - 1; i++) {
+        snapVerts.push({ p: ring[i], kind: "plot" });
+        snapSegs.push({ a: ring[i], b: ring[i + 1], kind: "plot" });
+      }
+    }
+
+    let matched = null;
+    plotLayer = L.geoJSON(
+      { type: "FeatureCollection", features },
+      {
+        style: { color: "#3c6e47", weight: 1, fillColor: "#a9c9ab", fillOpacity: 0.45 },
+        onEachFeature: (feature, lyr) => {
+          if (highlightGlobalId && feature.properties.global_id === highlightGlobalId) {
+            matched = { feature, lyr };
+          }
+          lyr.on("click", () => { if (!measuring) showPanel(feature.properties, lyr); });
+          lyr.on("mouseover", () => lyr.setStyle({ fillOpacity: 0.75 }));
+          lyr.on("mouseout", () => lyr.setStyle({ fillOpacity: 0.45 }));
+        },
+      }
+    ).addTo(map);
+
+    if (matched) showPanel(matched.feature.properties, matched.lyr);
+    return plotLayer;
+  }
+
+  const PLOT_COLS =
+    "global_id,parcel_no,paci_no,block_no,neighborhood_ar,neighborhood_en,measured_area,shape_area,shape_length,geom,geom_ktm";
+
+  async function api(path) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+    });
+    if (!res.ok) throw new Error(`Supabase query failed: ${res.status} ${res.statusText}`);
+    return res.json();
+  }
+
+  // Loads only what's inside the current view, via the PostGIS bbox function.
+  async function loadPlotsInView({ highlightGlobalId = null } = {}) {
+    const b = map.getBounds();
+    const rows = await api(
+      `rpc/plots_in_bbox?min_lon=${b.getWest()}&min_lat=${b.getSouth()}` +
+        `&max_lon=${b.getEast()}&max_lat=${b.getNorth()}&max_rows=${PLOT_LIMIT}`
+    );
+    const features = rowsToFeatures(rows);
+    renderPlots(features, { highlightGlobalId });
+    statusEl.textContent =
+      features.length >= PLOT_LIMIT
+        ? t("limitReached", features.length)
+        : t("plotsInView", features.length);
+    return features;
+  }
+
+  // Loads the roads that the DB already identified as nearest to these plots.
+  // (A proper bbox query would need a PostGIS RPC; this is enough to check
+  // whether the municipality's roads and parcels agree with each other.)
+  async function loadNearbyRoads() {
+    const url =
+      `${SUPABASE_URL}/rest/v1/plot_street_distances?select=roads(id,road_name,geom)&limit=4000`;
+    const res = await fetch(url, {
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+    });
+    if (!res.ok) return;
+    const rows = await res.json();
+
+    const seen = new Set();
+    const features = [];
+    for (const row of rows) {
+      const r = row.roads;
+      if (!r?.geom || seen.has(r.id)) continue;
+      seen.add(r.id);
+      features.push({
+        type: "Feature",
+        geometry: r.geom,
+        properties: { road_name: r.road_name },
+      });
+    }
+
+    // Road centrelines are snap targets, but deliberately NOT vertices and
+    // marked as a distinct kind: a centreline runs down the middle of the
+    // carriageway, so snapping a "distance to the street" measurement to it
+    // overshoots by half a road width. Block boundaries (kind "street") are
+    // the kerb line and are what you usually want.
+    for (const f of features) {
+      const line = f.geometry?.coordinates;
+      if (!line) continue;
+      for (let i = 0; i < line.length - 1; i++)
+        roadSnapSegs.push({ a: line[i], b: line[i + 1], kind: "road" });
+    }
+
+    L.geoJSON(
+      { type: "FeatureCollection", features },
+      {
+        style: { color: "#e67e22", weight: 2, opacity: 0.9 },
+        onEachFeature: (f, lyr) => {
+          if (f.properties.road_name) lyr.bindTooltip(f.properties.road_name);
+        },
+      }
+    ).addTo(roadsLayer);
+  }
+
+  // Block boundaries = the kerb line where a block meets the street. These are
+  // the primary snap target for "how far is this plot from the street".
+  async function loadBlocks() {
+    const url = `${SUPABASE_URL}/rest/v1/blocks?select=code,geom&limit=2000`;
+    const res = await fetch(url, {
+      headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
+    });
+    if (!res.ok) return;
+    const rows = await res.json();
+
+    const bounds = map.getBounds().pad(0.5);
+    const features = [];
+    for (const b of rows) {
+      if (!b.geom) continue;
+      const polys = b.geom.type === "MultiPolygon" ? b.geom.coordinates : [b.geom.coordinates];
+      let near = false;
+      for (const poly of polys) {
+        for (const ring of poly) {
+          for (let i = 0; i < ring.length - 1; i++) {
+            if (!near && bounds.contains(L.latLng(ring[i][1], ring[i][0]))) near = true;
+            snapSegs.push({ a: ring[i], b: ring[i + 1], kind: "street" });
+          }
+        }
+      }
+      if (near) features.push({ type: "Feature", geometry: b.geom, properties: {} });
+    }
+
+    L.geoJSON(
+      { type: "FeatureCollection", features },
+      { style: { color: "#e67e22", weight: 1.5, fill: false, dashArray: "4,3" }, interactive: false }
+    ).addTo(blocksLayer);
+  }
+
+  // ---- Search -------------------------------------------------------------
+  // Accepts, in order of specificity:
+  //   "2/64"          -> block 2, parcel 64
+  //   digits          -> PACI number, else parcel number
+  //   anything else   -> neighbourhood name (Arabic or English, partial)
+  // On a hit it centres the map on the match, loads the plots around it, and
+  // opens that plot's panel.
+  const q = (s) => encodeURIComponent(s);
+
+  async function runSearch(rawTerm) {
+    const term = rawTerm.trim();
+    if (!term) return;
+    statusEl.textContent = t("searching");
+    errEl.classList.remove("visible");
+
+    const blockParcel = term.match(/^(\S+)\s*[/\-]\s*(\S+)$/);
+    let rows = [];
+
+    if (blockParcel) {
+      rows = await api(
+        `plots?select=${PLOT_COLS}&block_no=eq.${q(blockParcel[1])}&parcel_no=eq.${q(blockParcel[2])}&limit=1`
+      );
+    } else if (/^\d+$/.test(term)) {
+      rows = await api(`plots?select=${PLOT_COLS}&paci_no=eq.${q(term)}&limit=1`);
+      if (!rows.length)
+        rows = await api(`plots?select=${PLOT_COLS}&parcel_no=eq.${q(term)}&limit=1`);
+    } else {
+      rows = await api(
+        `plots?select=${PLOT_COLS}&or=(neighborhood_en.ilike.*${q(term)}*,neighborhood_ar.ilike.*${q(term)}*)&limit=1`
+      );
+    }
+
+    if (!rows.length) {
+      statusEl.textContent = t("noMatch");
+      errEl.textContent = t("noMatchHint", term);
+      errEl.classList.add("visible");
+      return;
+    }
+    await gotoPlot(rows[0]);
+  }
+
+  // Centres on a plot, loads the plots around it, and opens its panel.
+  async function gotoPlot(hit) {
+    const ring = hit.geom?.coordinates?.[0] ?? [];
+    if (!ring.length) return;
+    const lat = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+    const lng = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+
+    // animate:false jumps straight there -- a search result should land
+    // immediately, and it avoids depending on animation frames.
+    map.setView([lat, lng], 18, { animate: false });
+    // Wait a tick so the new bounds have settled before asking for that area.
+    await new Promise((r) => setTimeout(r, 120));
+    await loadPlotsInView({ highlightGlobalId: hit.global_id });
+  }
+
+  document.getElementById("searchForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    runSearch(document.getElementById("searchInput").value).catch((err) => {
+      statusEl.textContent = t("noMatch");
+      errEl.textContent = err.message;
+      errEl.classList.add("visible");
+      console.error(err);
+    });
+  });
+
+  // ---- Address cascade ----------------------------------------------------
+  // Neighbourhood -> block -> parcel, each list fetched from the server so it
+  // stays correct as the dataset grows. (Governorate becomes a fourth level
+  // once the national parcel layers are synced; this data has only one.)
+  const selNbh = document.getElementById("selNbh");
+  const selBlk = document.getElementById("selBlk");
+  const selPar = document.getElementById("selPar");
+  let nbhRows = [];
+
+  function nbhLabel(r) {
+    return (lang === "ar" ? r.name_ar || r.name_en : r.name_en || r.name_ar) || "—";
+  }
+
+  function refreshSelectPlaceholders() {
+    if (!selNbh) return;
+    if (selNbh.options.length) selNbh.options[0].textContent = t("selNbh");
+    if (selBlk.options.length) selBlk.options[0].textContent = t("selBlk");
+    if (selPar.options.length) selPar.options[0].textContent = t("selPar");
+    for (let i = 0; i < nbhRows.length; i++) {
+      if (selNbh.options[i + 1]) selNbh.options[i + 1].textContent = nbhLabel(nbhRows[i]);
+    }
+  }
+
+  function fillSelect(sel, placeholder, items, valueOf, labelOf) {
+    sel.innerHTML = "";
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = placeholder;
+    sel.appendChild(ph);
+    for (const it of items) {
+      const o = document.createElement("option");
+      o.value = valueOf(it);
+      o.textContent = labelOf(it);
+      sel.appendChild(o);
+    }
+    sel.disabled = items.length === 0;
+  }
+
+  async function initAddressCascade() {
+    nbhRows = await api("rpc/list_neighborhoods");
+    fillSelect(selNbh, t("selNbh"), nbhRows, (r) => r.name_en || r.name_ar, nbhLabel);
+    fillSelect(selBlk, t("selBlk"), [], (x) => x, (x) => x);
+    fillSelect(selPar, t("selPar"), [], (x) => x, (x) => x);
+  }
+
+  selNbh.addEventListener("change", async () => {
+    fillSelect(selPar, t("selPar"), [], (x) => x, (x) => x);
+    if (!selNbh.value) {
+      fillSelect(selBlk, t("selBlk"), [], (x) => x, (x) => x);
+      return;
+    }
+    const rows = await api(`rpc/list_blocks?nbh=${q(selNbh.value)}`);
+    fillSelect(selBlk, t("selBlk"), rows.map((r) => r.block_no), (x) => x, (x) => x);
+  });
+
+  selBlk.addEventListener("change", async () => {
+    if (!selBlk.value) {
+      fillSelect(selPar, t("selPar"), [], (x) => x, (x) => x);
+      return;
+    }
+    const rows = await api(
+      `rpc/list_parcels?nbh=${q(selNbh.value)}&blk=${q(selBlk.value)}`
+    );
+    fillSelect(selPar, t("selPar"), rows, (r) => r.global_id, (r) => r.parcel_no);
+  });
+
+  selPar.addEventListener("change", async () => {
+    if (!selPar.value) return;
+    const rows = await api(
+      `plots?select=${PLOT_COLS}&global_id=eq.${q(selPar.value)}&limit=1`
+    );
+    if (rows.length) await gotoPlot(rows[0]);
+  });
+
+  const modePaci = document.getElementById("modePaci");
+  const modeAddr = document.getElementById("modeAddr");
+  const addrForm = document.getElementById("addrForm");
+  const searchForm = document.getElementById("searchForm");
+
+  modePaci.addEventListener("click", () => {
+    modePaci.classList.add("active");
+    modeAddr.classList.remove("active");
+    searchForm.hidden = false;
+    addrForm.hidden = true;
+  });
+  modeAddr.addEventListener("click", () => {
+    modeAddr.classList.add("active");
+    modePaci.classList.remove("active");
+    searchForm.hidden = true;
+    addrForm.hidden = false;
+  });
+
+  applyLang();
+  initAddressCascade().catch((err) => console.error("address cascade failed:", err));
+  loadBlocks().catch((err) => console.error("blocks load failed:", err));
+
+  loadPlotsInView().catch((err) => {
+    statusEl.textContent = t("loadFailed");
+    errEl.textContent = err.message;
+    errEl.classList.add("visible");
+    console.error(err);
+  });
+
+  // Reload for the new viewport after panning/zooming, so the map isn't empty
+  // when you move away from the searched area. Debounced, and skipped when
+  // zoomed too far out to keep the request meaningful.
+  let moveTimer = null;
+  map.on("moveend", () => {
+    if (measuring) return;
+    clearTimeout(moveTimer);
+    moveTimer = setTimeout(() => {
+      if (map.getZoom() < 15) {
+        statusEl.textContent = t("zoomIn");
+        return;
+      }
+      loadPlotsInView().catch((err) => console.error(err));
+    }, 350);
+  });
+
+  loadNearbyRoads().catch((err) => console.error("roads load failed:", err));
+</script>
+</body>
+</html>
