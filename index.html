@@ -1188,9 +1188,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       row(t("paci"), props.paci_no?.trim() || "&mdash;") +
       row(t("neighborhood"), nbh ?? "&mdash;") +
       row(t("area"), fmtNum(props.measured_area, "m&sup2;")) +
-      row(t("perimeter"), fmtNum(props.shape_length, "m")) +
       `<div><dt>${t("sides")}</dt>${sidesHtml}</div>` +
-      `<div><dt>${t("globalId")}</dt><dd style="font-weight:400;font-size:10px;word-break:break-all;">${props.global_id ?? "&mdash;"}</dd></div>` +
       `<dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button></dd>`;
     panelEl.classList.add("visible");
     showSideLabels(props, layer);
