@@ -204,6 +204,48 @@ svg.leaflet-zoom-animated{will-change:transform;}
     box-shadow: none;
   }
   .measure-label::before { display: none; }
+  /* Search results: a street usually matches many parcels, so matches are
+     listed rather than silently picking the first. */
+  #results {
+    position: absolute;
+    top: 10px;
+    inset-inline-start: 50px;
+    width: min(340px, calc(100% - 70px));
+    max-height: 55%;
+    overflow-y: auto;
+    z-index: 620;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.25);
+    display: none;
+  }
+  #results.visible { display: block; }
+  #results .res-head {
+    padding: 7px 11px;
+    font-size: 11px;
+    color: #5b6b60;
+    border-bottom: 1px solid var(--line);
+  }
+  #results .res-item {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    width: 100%;
+    text-align: start;
+    background: none;
+    border: none;
+    border-bottom: 1px solid var(--line);
+    padding: 8px 11px;
+    cursor: pointer;
+    font: inherit;
+    color: var(--ink);
+  }
+  #results .res-item:last-child { border-bottom: none; }
+  #results .res-item:hover { background: #ebe8df; }
+  #results .res-item b { font-size: 13px; font-weight: 600; }
+  #results .res-item span { font-size: 11px; color: #5b6b60; }
+
   /* Magnifier: a small inset map that follows the cursor at a higher zoom, so
      the distance label can't hide the line you're snapping to. Parked in a
      fixed corner rather than under the cursor, for the same reason. */
@@ -502,7 +544,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
         <button type="submit" data-i18n="search">Search</button>
       </form>
       <div id="addrForm" hidden>
-        <select id="selNbh"></select>
+        <select id="selGov"></select>
+        <select id="selNbh" disabled></select>
         <select id="selBlk" disabled></select>
         <select id="selPar" disabled></select>
       </div>
@@ -520,6 +563,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   <div style="position: relative; flex: 1; min-height: 0;">
     <div id="map"></div>
     <dl id="panel"></dl>
+    <div id="results"></div>
     <div id="mag">
       <div id="magMap"></div>
       <div class="cross-h"></div>
@@ -549,7 +593,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       modePaci: "الرقم الآلي",
       modeAddr: "العنوان",
       search: "بحث",
-      paciPlaceholder: "الرقم الآلي أو رقم القسيمة (مثال ٢/٦٤)",
+      paciPlaceholder: "اسم الشارع أو المنطقة أو القطعة/القسيمة",
+      selGov: "المحافظة",
       selNbh: "اختر المنطقة",
       selBlk: "اختر القطعة",
       selPar: "اختر القسيمة",
@@ -576,7 +621,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       legRoad: "محور الشارع",
       searching: "جارٍ البحث…",
       noMatch: "لا توجد نتائج",
-      noMatchHint: (q) => `لم يتم العثور على "${q}". جرّب رقم القسيمة أو القطعة/القسيمة مثل ٢/٦٤.`,
+      noMatchHint: (q) => `لم يتم العثور على "${q}". جرّب اسم الشارع أو المنطقة أو القطعة/القسيمة مثل ٢/٦٤.`,
+      results: (n, q) => `${n} نتيجة لـ "${q}"`,
       plotsInView: (n) => `${n} قسيمة في النطاق`,
       limitReached: () => "قرّب أكثر",
       zoomIn: "قرّب لعرض القسائم",
@@ -589,7 +635,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       modePaci: "PACI",
       modeAddr: "Address",
       search: "Search",
-      paciPlaceholder: "PACI no. or block/parcel (e.g. 2/64)",
+      paciPlaceholder: "Street or area name, or block/parcel",
+      selGov: "Governorate",
       selNbh: "Select neighbourhood",
       selBlk: "Select block",
       selPar: "Select parcel",
@@ -616,7 +663,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       legRoad: "road centre",
       searching: "searching…",
       noMatch: "no match",
-      noMatchHint: (q) => `Nothing found for "${q}". Try a parcel number or block/parcel like 2/64.`,
+      noMatchHint: (q) => `Nothing found for "${q}". Try a street or area name, or block/parcel like 2/64.`,
+      results: (n, q) => `${n} results for "${q}"`,
       plotsInView: (n) => `${n} plots in view`,
       limitReached: () => "zoom in",
       zoomIn: "zoom in to load plots",
@@ -944,6 +992,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (measuring) cancelInProgress();
+    else if (resultsEl.classList.contains("visible")) hideResults();
     else clearSelection();
   });
 
@@ -1545,9 +1594,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
       if (!rows.length)
         rows = await api(`plots?select=${PLOT_COLS}&parcel_no=eq.${q(term)}&limit=1`);
     } else {
-      rows = await api(
-        `plots?select=${PLOT_COLS}&or=(neighborhood_en.ilike.*${q(term)}*,neighborhood_ar.ilike.*${q(term)}*)&limit=1`
-      );
+      // Free text: street name, neighbourhood, or the name of a named feature
+      // (mosque, co-op, tower), in either language. Several parcels usually
+      // match a street, so these come back as a list to choose from.
+      const hits = await api(`rpc/search_address?term=${q(term)}&max_rows=25`);
+      if (hits.length) return showResults(hits, term);
+      rows = [];
     }
 
     if (!rows.length) {
@@ -1556,7 +1608,48 @@ svg.leaflet-zoom-animated{will-change:transform;}
       errEl.classList.add("visible");
       return;
     }
+    hideResults();
     await gotoPlot(rows[0]);
+  }
+
+  // ---- Result list --------------------------------------------------------
+  const resultsEl = document.getElementById("results");
+
+  function hideResults() {
+    resultsEl.classList.remove("visible");
+    resultsEl.innerHTML = "";
+  }
+
+  function showResults(hits, term) {
+    const pick = (ar, en) => (lang === "ar" ? ar || en : en || ar);
+    statusEl.textContent = "";
+    errEl.classList.remove("visible");
+    resultsEl.innerHTML =
+      `<div class="res-head">${t("results", hits.length, term)}</div>` +
+      hits
+        .map((h, i) => {
+          const street = pick(h.street_ar, h.street_en);
+          const nbh = pick(h.neighborhood_ar, h.neighborhood_en);
+          const line1 = [street, h.house_no ? `${t("house")} ${h.house_no}` : null]
+            .filter(Boolean).join(" · ") || `${t("parcel")} ${h.parcel_no ?? "—"}`;
+          const line2 = [nbh, h.block_no ? `${t("block")} ${h.block_no}` : null, h.governorate]
+            .filter(Boolean).join(" · ");
+          return `<button type="button" class="res-item" data-i="${i}">
+                    <b>${line1}</b><span>${line2}</span>
+                  </button>`;
+        })
+        .join("");
+    resultsEl.classList.add("visible");
+
+    for (const btn of resultsEl.querySelectorAll(".res-item")) {
+      btn.addEventListener("click", async () => {
+        const h = hits[Number(btn.dataset.i)];
+        hideResults();
+        map.setView([h.lat, h.lon], 18, { animate: false });
+        await new Promise((r) => setTimeout(r, 120));
+        await loadViewport({ highlightGlobalId: h.global_id });
+      });
+    }
   }
 
   // Centres on a plot, loads the plots around it, and opens its panel.
@@ -1588,9 +1681,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // Neighbourhood -> block -> parcel, each list fetched from the server so it
   // stays correct as the dataset grows. (Governorate becomes a fourth level
   // once the national parcel layers are synced; this data has only one.)
+  const selGov = document.getElementById("selGov");
   const selNbh = document.getElementById("selNbh");
   const selBlk = document.getElementById("selBlk");
   const selPar = document.getElementById("selPar");
+  let govRows = [];
   let nbhRows = [];
 
   function nbhLabel(r) {
@@ -1599,9 +1694,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   function refreshSelectPlaceholders() {
     if (!selNbh) return;
+    if (selGov.options.length) selGov.options[0].textContent = t("selGov");
     if (selNbh.options.length) selNbh.options[0].textContent = t("selNbh");
     if (selBlk.options.length) selBlk.options[0].textContent = t("selBlk");
     if (selPar.options.length) selPar.options[0].textContent = t("selPar");
+    for (let i = 0; i < govRows.length; i++) {
+      if (selGov.options[i + 1]) selGov.options[i + 1].textContent = nbhLabel(govRows[i]);
+    }
     for (let i = 0; i < nbhRows.length; i++) {
       if (selNbh.options[i + 1]) selNbh.options[i + 1].textContent = nbhLabel(nbhRows[i]);
     }
@@ -1622,32 +1721,44 @@ svg.leaflet-zoom-animated{will-change:transform;}
     sel.disabled = items.length === 0;
   }
 
+  const empty = (sel, key) => fillSelect(sel, t(key), [], (x) => x, (x) => x);
+
   async function initAddressCascade() {
-    nbhRows = await api("rpc/list_neighborhoods");
-    fillSelect(selNbh, t("selNbh"), nbhRows, (r) => r.name_en || r.name_ar, nbhLabel);
-    fillSelect(selBlk, t("selBlk"), [], (x) => x, (x) => x);
-    fillSelect(selPar, t("selPar"), [], (x) => x, (x) => x);
+    govRows = await api("rpc/list_governorates");
+    fillSelect(selGov, t("selGov"), govRows, (r) => r.gov_no, nbhLabel);
+    empty(selNbh, "selNbh");
+    empty(selBlk, "selBlk");
+    empty(selPar, "selPar");
   }
 
+  selGov.addEventListener("change", async () => {
+    empty(selBlk, "selBlk");
+    empty(selPar, "selPar");
+    if (!selGov.value) return empty(selNbh, "selNbh");
+    nbhRows = await api(`rpc/list_nbhoods?gov=${q(selGov.value)}`);
+    fillSelect(selNbh, t("selNbh"), nbhRows, (r) => r.nbhood_no, nbhLabel);
+  });
+
   selNbh.addEventListener("change", async () => {
-    fillSelect(selPar, t("selPar"), [], (x) => x, (x) => x);
-    if (!selNbh.value) {
-      fillSelect(selBlk, t("selBlk"), [], (x) => x, (x) => x);
-      return;
-    }
-    const rows = await api(`rpc/list_blocks?nbh=${q(selNbh.value)}`);
+    empty(selPar, "selPar");
+    if (!selNbh.value) return empty(selBlk, "selBlk");
+    const rows = await api(`rpc/list_blocks_v2?nbh=${q(selNbh.value)}`);
     fillSelect(selBlk, t("selBlk"), rows.map((r) => r.block_no), (x) => x, (x) => x);
   });
 
   selBlk.addEventListener("change", async () => {
-    if (!selBlk.value) {
-      fillSelect(selPar, t("selPar"), [], (x) => x, (x) => x);
-      return;
-    }
+    if (!selBlk.value) return empty(selPar, "selPar");
     const rows = await api(
-      `rpc/list_parcels?nbh=${q(selNbh.value)}&blk=${q(selBlk.value)}`
+      `rpc/list_parcels_v2?nbh=${q(selNbh.value)}&blk=${q(selBlk.value)}`
     );
-    fillSelect(selPar, t("selPar"), rows, (r) => r.global_id, (r) => r.parcel_no);
+    // Show the house number alongside the parcel where the source has one.
+    fillSelect(
+      selPar,
+      t("selPar"),
+      rows,
+      (r) => r.global_id,
+      (r) => (r.house_no ? `${r.parcel_no} — ${t("house")} ${r.house_no}` : r.parcel_no)
+    );
   });
 
   selPar.addEventListener("change", async () => {
