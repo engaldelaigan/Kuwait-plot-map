@@ -1451,39 +1451,25 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return features;
   }
 
-  // Loads the roads that the DB already identified as nearest to these plots.
-  // (A proper bbox query would need a PostGIS RPC; this is enough to check
-  // whether the municipality's roads and parcels agree with each other.)
-  async function loadNearbyRoads() {
-    const url =
-      `${SUPABASE_URL}/rest/v1/plot_street_distances?select=roads(id,road_name,geom)&limit=4000`;
-    const res = await fetch(url, {
-      headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
-    });
-    if (!res.ok) return;
-    const rows = await res.json();
+  // Road centrelines for the current view. They are snap targets, but
+  // deliberately NOT vertices and marked as a distinct kind: a centreline runs
+  // down the middle of the carriageway, so snapping a "distance to the street"
+  // measurement to it overshoots by half a road width. Block boundaries
+  // (kind "street") are the kerb line and are what you usually want.
+  async function loadRoadsInView() {
+    const b = map.getBounds();
+    const rows = await api(
+      `rpc/roads_in_bbox?min_lon=${b.getWest()}&min_lat=${b.getSouth()}` +
+        `&max_lon=${b.getEast()}&max_lat=${b.getNorth()}`
+    ).catch(() => []);
 
-    const seen = new Set();
+    roadsLayer.clearLayers();
+    roadSnapSegs.length = 0;
     const features = [];
-    for (const row of rows) {
-      const r = row.roads;
-      if (!r?.geom || seen.has(r.id)) continue;
-      seen.add(r.id);
-      features.push({
-        type: "Feature",
-        geometry: r.geom,
-        properties: { road_name: r.road_name },
-      });
-    }
-
-    // Road centrelines are snap targets, but deliberately NOT vertices and
-    // marked as a distinct kind: a centreline runs down the middle of the
-    // carriageway, so snapping a "distance to the street" measurement to it
-    // overshoots by half a road width. Block boundaries (kind "street") are
-    // the kerb line and are what you usually want.
-    for (const f of features) {
-      const line = f.geometry?.coordinates;
-      if (!line) continue;
+    for (const r of rows) {
+      if (!r.geom) continue;
+      features.push({ type: "Feature", geometry: r.geom, properties: { road_name: r.road_name } });
+      const line = r.geom.coordinates;
       for (let i = 0; i < line.length - 1; i++)
         roadSnapSegs.push({ a: line[i], b: line[i + 1], kind: "road" });
     }
@@ -1491,7 +1477,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     L.geoJSON(
       { type: "FeatureCollection", features },
       {
-        style: { color: "#e67e22", weight: 2, opacity: 0.9 },
+        style: { color: "#8e44ad", weight: 2, opacity: 0.9 },
         onEachFeature: (f, lyr) => {
           if (f.properties.road_name) lyr.bindTooltip(f.properties.road_name);
         },
@@ -1501,29 +1487,29 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   // Block boundaries = the kerb line where a block meets the street. These are
   // the primary snap target for "how far is this plot from the street".
-  async function loadBlocks() {
-    const url = `${SUPABASE_URL}/rest/v1/blocks?select=code,geom&limit=2000`;
-    const res = await fetch(url, {
-      headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
-    });
-    if (!res.ok) return;
-    const rows = await res.json();
+  async function loadBlocksInView() {
+    const b = map.getBounds();
+    const rows = await api(
+      `rpc/blocks_in_bbox?min_lon=${b.getWest()}&min_lat=${b.getSouth()}` +
+        `&max_lon=${b.getEast()}&max_lat=${b.getNorth()}`
+    ).catch(() => []);
 
-    const bounds = map.getBounds().pad(0.5);
+    blocksLayer.clearLayers();
+    // Rebuild rather than append, so kerb lines from a previous area can't be
+    // snapped to after navigating somewhere else.
+    for (let i = snapSegs.length - 1; i >= 0; i--) {
+      if (snapSegs[i].kind === "street") snapSegs.splice(i, 1);
+    }
+
     const features = [];
-    for (const b of rows) {
-      if (!b.geom) continue;
-      const polys = b.geom.type === "MultiPolygon" ? b.geom.coordinates : [b.geom.coordinates];
-      let near = false;
-      for (const poly of polys) {
-        for (const ring of poly) {
-          for (let i = 0; i < ring.length - 1; i++) {
-            if (!near && bounds.contains(L.latLng(ring[i][1], ring[i][0]))) near = true;
+    for (const row of rows) {
+      if (!row.geom) continue;
+      features.push({ type: "Feature", geometry: row.geom, properties: {} });
+      const polys = row.geom.type === "MultiPolygon" ? row.geom.coordinates : [row.geom.coordinates];
+      for (const poly of polys)
+        for (const ring of poly)
+          for (let i = 0; i < ring.length - 1; i++)
             snapSegs.push({ a: ring[i], b: ring[i + 1], kind: "street" });
-          }
-        }
-      }
-      if (near) features.push({ type: "Feature", geometry: b.geom, properties: {} });
     }
 
     L.geoJSON(
@@ -1585,7 +1571,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     map.setView([lat, lng], 18, { animate: false });
     // Wait a tick so the new bounds have settled before asking for that area.
     await new Promise((r) => setTimeout(r, 120));
-    await loadPlotsInView({ highlightGlobalId: hit.global_id });
+    await loadViewport({ highlightGlobalId: hit.global_id });
   }
 
   document.getElementById("searchForm").addEventListener("submit", (e) => {
@@ -1690,11 +1676,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
     addrForm.hidden = false;
   });
 
+  // Parcels, kerb lines and road centrelines all follow the viewport together,
+  // so the ruler's snap targets always match what's on screen.
+  async function loadViewport(opts = {}) {
+    await Promise.all([
+      loadPlotsInView(opts),
+      loadBlocksInView(),
+      map.hasLayer(roadsLayer) ? loadRoadsInView() : Promise.resolve(),
+    ]);
+  }
+
   applyLang();
   initAddressCascade().catch((err) => console.error("address cascade failed:", err));
-  loadBlocks().catch((err) => console.error("blocks load failed:", err));
 
-  loadPlotsInView().catch((err) => {
+  loadViewport().catch((err) => {
     statusEl.textContent = t("loadFailed");
     errEl.textContent = err.message;
     errEl.classList.add("visible");
@@ -1713,11 +1708,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
         statusEl.textContent = t("zoomIn");
         return;
       }
-      loadPlotsInView().catch((err) => console.error(err));
+      loadViewport().catch((err) => console.error(err));
     }, 350);
   });
 
-  loadNearbyRoads().catch((err) => console.error("roads load failed:", err));
+  // Road centrelines are off by default; fetch them the first time they're
+  // switched on rather than loading them for every view.
+  map.on("overlayadd", (e) => {
+    if (e.layer === roadsLayer) loadRoadsInView().catch((err) => console.error(err));
+  });
 </script>
 </body>
 </html>
