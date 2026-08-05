@@ -939,9 +939,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
     }
   });
 
-  // Esc backs out of a half-drawn measurement without touching finished ones.
+  // Esc backs out of a half-drawn measurement without touching finished ones;
+  // when not measuring it clears the selected plot.
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && measuring) cancelInProgress();
+    if (e.key !== "Escape") return;
+    if (measuring) cancelInProgress();
+    else clearSelection();
+  });
+
+  // Clicking empty map deselects. A click on a plot fires on the layer first
+  // and then reaches the map, so the layer handler sets a flag to opt out.
+  let plotJustClicked = false;
+  map.on("click", () => {
+    if (plotJustClicked) { plotJustClicked = false; return; }
+    if (!measuring) clearSelection();
   });
 
   document.getElementById("clearBtn").addEventListener("click", clearAllMeasurements);
@@ -1156,9 +1167,51 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   // Sides are numbered 1..n in the order the source stores the boundary, and
   // the same numbers are drawn at each edge's midpoint on the map.
+  // The source often stores extra vertices along a straight boundary, so a
+  // four-sided parcel can arrive with six or more segments. Duplicate points
+  // are dropped and consecutive segments that continue in the same direction
+  // are merged, so "side 1" is a side a surveyor would recognise rather than
+  // an arbitrary piece of one.
+  const COLLINEAR_TOLERANCE_M = 0.15; // deviation from straight before it counts as a real corner
+
+  function simplifyRing(ring) {
+    const kx = mPerDegLon(ring[0][1]), ky = mPerDegLat(ring[0][1]);
+    const closed =
+      ring.length > 1 &&
+      ring[0][0] === ring[ring.length - 1][0] &&
+      ring[0][1] === ring[ring.length - 1][1];
+    const pts = closed ? ring.slice(0, -1) : ring.slice();
+
+    // drop duplicates
+    const uniq = [];
+    for (const p of pts) {
+      const q = uniq[uniq.length - 1];
+      if (!q || Math.hypot((p[0] - q[0]) * kx, (p[1] - q[1]) * ky) > 0.05) uniq.push(p);
+    }
+    if (uniq.length < 3) return closed ? ring : [...ring, ring[0]];
+
+    // drop vertices that sit on the line between their neighbours
+    const keep = [];
+    for (let i = 0; i < uniq.length; i++) {
+      const a = uniq[(i - 1 + uniq.length) % uniq.length];
+      const b = uniq[i];
+      const c = uniq[(i + 1) % uniq.length];
+      const ax = a[0] * kx, ay = a[1] * ky;
+      const bx = b[0] * kx, by = b[1] * ky;
+      const cx = c[0] * kx, cy = c[1] * ky;
+      const vx = cx - ax, vy = cy - ay;
+      const len = Math.hypot(vx, vy);
+      const dev = len === 0 ? 0 : Math.abs((bx - ax) * vy - (by - ay) * vx) / len;
+      if (dev > COLLINEAR_TOLERANCE_M) keep.push(b);
+    }
+    const out = keep.length >= 3 ? keep : uniq;
+    return [...out, out[0]];
+  }
+
   function computeSideDetails(geomWgs) {
-    const ring = geomWgs?.coordinates?.[0];
-    if (!ring) return [];
+    const raw = geomWgs?.coordinates?.[0];
+    if (!raw) return [];
+    const ring = simplifyRing(raw);
     const sides = [];
     for (let i = 0; i < ring.length - 1; i++) {
       sides.push({
@@ -1172,6 +1225,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   const sideLabels = L.layerGroup().addTo(map);
   let selectedOutline = null;
+
+  // Deselect: hides the panel, the red outline and the side numbers.
+  function clearSelection() {
+    sideLabels.clearLayers();
+    if (selectedOutline) { map.removeLayer(selectedOutline); selectedOutline = null; }
+    panelEl.classList.remove("visible");
+    panelEl.innerHTML = "";
+    selectedProps = null;
+    selectedLayer = null;
+  }
 
   function showSideLabels(props, layer) {
     sideLabels.clearLayers();
@@ -1348,7 +1411,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
           if (highlightGlobalId && feature.properties.global_id === highlightGlobalId) {
             matched = { feature, lyr };
           }
-          lyr.on("click", () => { if (!measuring) showPanel(feature.properties, lyr); });
+          lyr.on("click", () => {
+            plotJustClicked = true;
+            if (!measuring) showPanel(feature.properties, lyr);
+          });
           lyr.on("mouseover", () => lyr.setStyle({ fillOpacity: 0.75 }));
           lyr.on("mouseout", () => lyr.setStyle({ fillOpacity: 0.45 }));
         },
