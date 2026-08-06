@@ -1,0 +1,9 @@
+{
+  // Serves the viewer as static assets. There is no build step -- index.html
+  // is self-contained -- so Workers just hosts the directory as-is.
+  "name": "kuwait-plot-map",
+  "compatibility_date": "2026-08-01",
+  "assets": {
+    "directory": "."
+  }
+}

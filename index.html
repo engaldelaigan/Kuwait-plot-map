@@ -1637,14 +1637,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const blockParcel = term.match(/^(\S+)\s*[/\-]\s*(\S+)$/);
     let rows = [];
 
+    // All reads go through bounded RPCs -- the tables themselves are not
+    // readable by the public key, so nobody can pull the whole dataset in one
+    // request the way `?limit=100000` would have allowed.
     if (blockParcel) {
       rows = await api(
-        `plots?select=${PLOT_COLS}&block_no=eq.${q(blockParcel[1])}&parcel_no=eq.${q(blockParcel[2])}&limit=1`
+        `rpc/plot_by_block_parcel?blk=${q(blockParcel[1])}&par=${q(blockParcel[2])}`
       );
     } else if (/^\d+$/.test(term)) {
-      rows = await api(`plots?select=${PLOT_COLS}&paci_no=eq.${q(term)}&limit=1`);
-      if (!rows.length)
-        rows = await api(`plots?select=${PLOT_COLS}&parcel_no=eq.${q(term)}&limit=1`);
+      rows = await api(`rpc/plot_by_parcel_no?par=${q(term)}`);
     } else {
       // Free text: street name, neighbourhood, or the name of a named feature
       // (mosque, co-op, tower), in either language. Several parcels usually
@@ -1822,9 +1823,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   selPar.addEventListener("change", async () => {
     if (!selPar.value) return;
-    const rows = await api(
-      `plots?select=${PLOT_COLS}&global_id=eq.${q(selPar.value)}&limit=1`
-    );
+    const rows = await api(`rpc/plot_by_gis?gis=${q(selPar.value)}`);
     if (rows.length) {
       hideResults();
       await gotoPlot(rows[0]);
