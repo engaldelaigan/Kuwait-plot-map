@@ -187,10 +187,21 @@ svg.leaflet-zoom-animated{will-change:transform;}
     color: var(--ink);
     cursor: pointer;
   }
-  #measureBtn.active {
+  #measureBtn.active, #exactBtn.active {
     background: var(--accent);
     border-color: var(--accent);
     color: #fff;
+  }
+  #exactBtn {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper);
+    color: var(--ink);
+    cursor: pointer;
   }
   .measure-label {
     background: rgba(23, 33, 27, 0.9);
@@ -455,6 +466,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     #searchForm button,
     #measureBtn,
     #clearBtn,
+    #exactBtn,
     #langBtn {
       padding: 6px 9px;
       font-size: 11px;
@@ -554,6 +566,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       <span id="status">connecting&hellip;</span>
       <label id="snapWrap"><input type="checkbox" id="snapChk" checked /> <span data-i18n="snapStart">Snap start point</span></label>
       <label id="perpWrap"><input type="checkbox" id="perpChk" /> <span data-i18n="perp">&perp; to edge</span></label>
+      <button id="exactBtn" type="button" data-i18n="exactBtn">Exact</button>
       <button id="measureBtn" type="button" data-i18n="measure">Measure</button>
       <button id="clearBtn" type="button" data-i18n="clear">Clear</button>
       <button id="langBtn" type="button">EN</button>
@@ -602,6 +615,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       perp: "عمودي على الحد",
       measure: "قياس",
       clear: "مسح",
+      exactBtn: "الأبعاد الدقيقة",
       parcel: "القسيمة",
       block: "القطعة",
       paci: "الرقم الآلي",
@@ -623,6 +637,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       noMatch: "لا توجد نتائج",
       noMatchHint: (q) => `لم يتم العثور على "${q}". جرّب اسم الشارع أو المنطقة أو القطعة/القسيمة مثل ٢/٦٤.`,
       results: (n, q) => `${n} نتيجة لـ "${q}"`,
+      noGeom: "بدون حدود",
+      noGeomHint: "هذه القسيمة مسجّلة في دليل العناوين لكن حدودها غير متوفرة في بيانات الخرائط العامة.",
       plotsInView: (n) => `${n} قسيمة في النطاق`,
       limitReached: () => "قرّب أكثر",
       zoomIn: "قرّب لعرض القسائم",
@@ -644,6 +660,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       perp: "⊥ to edge",
       measure: "Measure",
       clear: "Clear",
+      exactBtn: "Exact dims",
       parcel: "Parcel",
       block: "Block",
       paci: "PACI No.",
@@ -665,6 +682,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       noMatch: "no match",
       noMatchHint: (q) => `Nothing found for "${q}". Try a street or area name, or block/parcel like 2/64.`,
       results: (n, q) => `${n} results for "${q}"`,
+      noGeom: "no boundary",
+      noGeomHint: "This parcel is in the municipality's address index, but its boundary isn't in the public map data.",
       plotsInView: (n) => `${n} plots in view`,
       limitReached: () => "zoom in",
       zoomIn: "zoom in to load plots",
@@ -1160,6 +1179,39 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return n == null ? "&mdash;" : `${Number(n).toLocaleString(undefined, { maximumFractionDigits: 1 })} ${unit}`;
   }
 
+  // ---- Dimension display --------------------------------------------------
+  // About half the boundaries in the municipality's data sit exactly on a
+  // surveyed value (whole 0.5 m); the rest are digitised approximations off by
+  // 10-20 cm. Default view snaps only the ones already within a few centimetres
+  // of a clean value, so 19.999 reads as 20 while a genuine 33.86 is left
+  // alone -- rounding that to 34 would invent precision the data doesn't have.
+  // "Exact" shows every side as measured, to one decimal.
+  // 10 cm: wide enough to recover the surveyed value from digitisation drift
+  // (p75 of the deviation is ~0.10 m), narrow enough to leave genuinely
+  // irregular sides alone -- 33.855 is 0.145 m from 34.0 so it stays 33.9.
+  const SNAP_TOLERANCE_M = 0.10;
+  let exactMode = false;
+
+  function fmtSide(metres) {
+    if (metres == null) return "&mdash;";
+    if (!exactMode) {
+      const clean = Math.round(metres * 2) / 2; // nearest 0.5 m
+      // epsilon so values sitting exactly on the tolerance don't snap or not
+      // depending on floating-point representation (24.9 vs 12.4 both being
+      // 0.1 away, one landing a hair over).
+      if (Math.abs(metres - clean) <= SNAP_TOLERANCE_M + 1e-9) {
+        return `${clean % 1 === 0 ? clean.toFixed(0) : clean.toFixed(1)} m`;
+      }
+    }
+    return `${metres.toFixed(1)} m`;
+  }
+
+  document.getElementById("exactBtn").addEventListener("click", () => {
+    exactMode = !exactMode;
+    document.getElementById("exactBtn").classList.toggle("active", exactMode);
+    if (selectedProps) showPanel(selectedProps, selectedLayer);
+  });
+
   // Vincenty inverse on the WGS84 ellipsoid. The national parcel layers are
   // Web Mercator (no metric geometry to measure directly), so side lengths are
   // measured geodesically from the WGS84 ring instead.
@@ -1337,7 +1389,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
         const ox = mx + (dx / len) * fs * 1.1;
         const oy = my + (dy / len) * fs * 1.1;
         return `<text x="${ox}" y="${oy}" font-size="${fs}" text-anchor="middle" dominant-baseline="middle" fill="#17211b">${s.n}</text>
-                <text x="${ox}" y="${oy + fs}" font-size="${fs * 0.72}" text-anchor="middle" dominant-baseline="middle" fill="#5b6b60">${s.length.toFixed(2)} m</text>`;
+                <text x="${ox}" y="${oy + fs}" font-size="${fs * 0.72}" text-anchor="middle" dominant-baseline="middle" fill="#5b6b60">${fmtSide(s.length).replace("&mdash;", "—")}</text>`;
       })
       .join("");
 
@@ -1359,7 +1411,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const title = pick(props.title_ar, props.title_en);
     const sidesHtml = props.sides.length
       ? `<dd style="font-weight:400;">${props.sides
-          .map((s) => `<b>${s.n}</b> &mdash; ${fmtNum(s.length, "m")}`)
+          .map((s) => `<b>${s.n}</b> &mdash; ${fmtSide(s.length)}`)
           .join("<br>")}</dd>`
       : "<dd>&mdash;</dd>";
     // Each label/value pair is wrapped so the two-column mobile layout can't
@@ -1385,7 +1437,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       ? props.neighborhood_ar || props.neighborhood_en
       : props.neighborhood_en || props.neighborhood_ar;
     const rows = props.sides
-      .map((s) => `<tr><td>${s.n}</td><td>${s.length.toFixed(2)} m</td></tr>`)
+      .map((s) => `<tr><td>${s.n}</td><td>${fmtSide(s.length)}</td></tr>`)
       .join("");
     document.getElementById("printArea").innerHTML = `
       <h1>${t("parcel")} ${props.parcel_no ?? ""} &mdash; ${t("block")} ${props.block_no ?? ""}</h1>
@@ -1751,13 +1803,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const rows = await api(
       `rpc/list_parcels_v2?nbh=${q(selNbh.value)}&blk=${q(selBlk.value)}`
     );
-    // Show the house number alongside the parcel where the source has one.
+    // Label with house number or the feature's name where there is one.
+    // The municipality's address index holds more addresses than the public
+    // parcel layers have geometry for, so anything unmappable is marked.
     fillSelect(
       selPar,
       t("selPar"),
       rows,
       (r) => r.global_id,
-      (r) => (r.house_no ? `${r.parcel_no} — ${t("house")} ${r.house_no}` : r.parcel_no)
+      (r) => {
+        const base = r.house_no
+          ? `${r.parcel_no ?? "—"} — ${t("house")} ${r.house_no}`
+          : r.title || r.parcel_no || "—";
+        return r.has_geom ? base : `${base} (${t("noGeom")})`;
+      }
     );
   });
 
@@ -1766,7 +1825,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const rows = await api(
       `plots?select=${PLOT_COLS}&global_id=eq.${q(selPar.value)}&limit=1`
     );
-    if (rows.length) await gotoPlot(rows[0]);
+    if (rows.length) {
+      hideResults();
+      await gotoPlot(rows[0]);
+    } else {
+      // Known to the municipality's index but absent from the parcel layers.
+      statusEl.textContent = "";
+      errEl.textContent = t("noGeomHint");
+      errEl.classList.add("visible");
+    }
   });
 
   const modePaci = document.getElementById("modePaci");
