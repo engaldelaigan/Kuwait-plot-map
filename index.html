@@ -3,7 +3,16 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-<title>Kuwait Plots — Live Viewer</title>
+<title>قسائم الكويت — Kuwait Plots</title>
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="theme-color" content="#3c6e47" />
+<meta name="description" content="خرائط القسائم والعناوين في الكويت مع أدوات قياس دقيقة" />
+<!-- iOS ignores the manifest for home-screen installs and uses these instead -->
+<link rel="apple-touch-icon" href="/icon-180.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="قسائم الكويت" />
 <style>
 /* --- Leaflet 1.9.4 core CSS, inlined so a blocked/failed CDN stylesheet
    request can't silently break the map's layout (JS still loading fine while
@@ -1894,6 +1903,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
   map.on("overlayadd", (e) => {
     if (e.layer === roadsLayer) loadRoadsInView().catch((err) => console.error(err));
   });
+
+  // Installable app. Registered only over HTTPS (or localhost) -- browsers
+  // refuse service workers on plain http, and the local dev server uses it.
+  if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js").catch((err) => console.warn("SW registration failed:", err));
+    });
+  }
 </script>
 </body>
 </html>
