@@ -346,6 +346,24 @@ svg.leaflet-zoom-animated{will-change:transform;}
     min-width: 0;
   }
   #addrForm select:disabled { color: #9aa79f; background: #f2f0ea; }
+  #showAreaBtn {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 12px;
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  #showAreaBtn:disabled {
+    background: #f2f0ea;
+    border-color: var(--line);
+    color: #9aa79f;
+    cursor: default;
+  }
   #langBtn {
     font: inherit;
     font-size: 11px;
@@ -473,6 +491,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     body.measuring-on #perpWrap { display: flex; }
     #modeTabs button,
     #searchForm button,
+    #showAreaBtn,
     #measureBtn,
     #clearBtn,
     #exactBtn,
@@ -569,6 +588,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
         <select id="selNbh" disabled></select>
         <select id="selBlk" disabled></select>
         <select id="selPar" disabled></select>
+        <button id="showAreaBtn" type="button" data-i18n="showArea" disabled>Show</button>
       </div>
     </div>
     <div style="display:flex; align-items:center; gap:10px;">
@@ -617,6 +637,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
       search: "بحث",
       paciPlaceholder: "اسم الشارع أو المنطقة أو القطعة/القسيمة",
       selGov: "المحافظة",
+      showArea: "عرض المنطقة",
+      areaShown: (n) => `${n} قسيمة`,
+      areaPartial: (n) => `${n} قسيمة — العرض غير مكتمل، قرّب أكثر`,
       selNbh: "اختر المنطقة",
       selBlk: "اختر القطعة",
       selPar: "اختر القسيمة",
@@ -662,6 +685,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
       search: "Search",
       paciPlaceholder: "Street or area name, or block/parcel",
       selGov: "Governorate",
+      showArea: "Show area",
+      areaShown: (n) => `${n} plots`,
+      areaPartial: (n) => `${n} plots — view truncated, zoom in`,
       selNbh: "Select neighbourhood",
       selBlk: "Select block",
       selPar: "Select parcel",
@@ -1723,6 +1749,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
     // animate:false jumps straight there -- a search result should land
     // immediately, and it avoids depending on animation frames.
+    skipNextMoveLoad = true;
     map.setView([lat, lng], 18, { animate: false });
     // Wait a tick so the new bounds have settled before asking for that area.
     await new Promise((r) => setTimeout(r, 120));
@@ -1785,6 +1812,64 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   const empty = (sel, key) => fillSelect(sel, t(key), [], (x) => x, (x) => x);
 
+  // "Show area" needs only governorate + neighbourhood; block narrows it
+  // further and parcel is optional. Requiring a full address just to look at
+  // an area was the wrong way round.
+  const showAreaBtn = document.getElementById("showAreaBtn");
+  const syncShowArea = () => { showAreaBtn.disabled = !selNbh.value; };
+  // Set before any programmatic map move so the moveend handler doesn't
+  // re-fetch a view we've just loaded.
+  let skipNextMoveLoad = false;
+
+  async function showArea() {
+    const nbh = selNbh.value;
+    if (!nbh) return;
+    const blk = selBlk.value || null;
+    statusEl.textContent = t("searching");
+    hideResults();
+    clearSelection();
+
+    const rows = await api(
+      `rpc/area_extent?nbh=${q(nbh)}` + (blk ? `&blk=${q(blk)}` : "")
+    );
+    const e = rows?.[0];
+    if (!e || e.min_lon == null) {
+      statusEl.textContent = t("noMatch");
+      errEl.textContent = t("noGeomHint");
+      errEl.classList.add("visible");
+      return;
+    }
+    errEl.classList.remove("visible");
+    skipNextMoveLoad = true;
+    map.fitBounds(
+      [[e.min_lat, e.min_lon], [e.max_lat, e.max_lon]],
+      { padding: [24, 24], animate: false, maxZoom: 18 }
+    );
+    await new Promise((r) => setTimeout(r, 150));
+    const shown = await loadViewport();
+    // Say how big the area is and whether everything in it is actually drawn.
+    // A whole neighbourhood routinely exceeds the per-view cap, and silently
+    // drawing a fraction would look like missing data.
+    // Warn whenever the viewport cap was reached: at that point the map is
+    // showing a truncated set, which may include part of the very area asked
+    // for. Comparing against the area's own count isn't enough, because the
+    // view also contains plots from neighbouring blocks.
+    const drawn = Array.isArray(shown) ? shown.length : 0;
+    statusEl.textContent =
+      drawn >= PLOT_LIMIT
+        ? t("areaPartial", e.plot_count)
+        : t("areaShown", e.plot_count);
+  }
+
+  showAreaBtn.addEventListener("click", () => {
+    showArea().catch((err) => {
+      statusEl.textContent = t("loadFailed");
+      errEl.textContent = err.message;
+      errEl.classList.add("visible");
+      console.error(err);
+    });
+  });
+
   async function initAddressCascade() {
     govRows = await api("rpc/list_governorates");
     fillSelect(selGov, t("selGov"), govRows, (r) => r.gov_no, nbhLabel);
@@ -1796,13 +1881,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
   selGov.addEventListener("change", async () => {
     empty(selBlk, "selBlk");
     empty(selPar, "selPar");
+    syncShowArea();
     if (!selGov.value) return empty(selNbh, "selNbh");
     nbhRows = await api(`rpc/list_nbhoods?gov=${q(selGov.value)}`);
     fillSelect(selNbh, t("selNbh"), nbhRows, (r) => r.nbhood_no, nbhLabel);
+    syncShowArea();
   });
 
   selNbh.addEventListener("change", async () => {
     empty(selPar, "selPar");
+    syncShowArea();
     if (!selNbh.value) return empty(selBlk, "selBlk");
     const rows = await api(`rpc/list_blocks_v2?nbh=${q(selNbh.value)}`);
     fillSelect(selBlk, t("selBlk"), rows.map((r) => r.block_no), (x) => x, (x) => x);
@@ -1864,12 +1952,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   // Parcels, kerb lines and road centrelines all follow the viewport together,
   // so the ruler's snap targets always match what's on screen.
+  // Returns the plots actually drawn, so callers can tell whether a view
+  // shows everything in an area or hit the per-view cap.
   async function loadViewport(opts = {}) {
-    await Promise.all([
+    const [features] = await Promise.all([
       loadPlotsInView(opts),
       loadBlocksInView(),
       map.hasLayer(roadsLayer) ? loadRoadsInView() : Promise.resolve(),
     ]);
+    return features;
   }
 
   applyLang();
@@ -1888,6 +1979,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
   let moveTimer = null;
   map.on("moveend", () => {
     if (measuring) return;
+    // A programmatic jump (search result, "show area") already loaded the new
+    // view and set its own status; without this the debounced handler would
+    // fetch the same viewport again and overwrite that message.
+    if (skipNextMoveLoad) { skipNextMoveLoad = false; return; }
     clearTimeout(moveTimer);
     moveTimer = setTimeout(() => {
       if (map.getZoom() < 15) {
