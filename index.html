@@ -1696,8 +1696,35 @@ svg.leaflet-zoom-animated{will-change:transform;}
       errEl.classList.add("visible");
       return;
     }
+    // Block and parcel numbers repeat across the country -- dozens of
+    // neighbourhoods have a block 6 -- so more than one match means the term
+    // is ambiguous and the user has to choose. Silently taking the first was
+    // how "6/10" landed in a random governorate.
+    if (rows.length > 1) {
+      return showResults(rows.map(plotToResult), term);
+    }
     hideResults();
     await gotoPlot(rows[0]);
+  }
+
+  // Shapes a plot row like a search_address hit so both can share the list.
+  function plotToResult(p) {
+    const ring = p.geom?.coordinates?.[0] ?? [];
+    const lat = ring.length ? ring.reduce((s, c) => s + c[1], 0) / ring.length : null;
+    const lon = ring.length ? ring.reduce((s, c) => s + c[0], 0) / ring.length : null;
+    return {
+      global_id: p.global_id,
+      parcel_no: p.parcel_no,
+      block_no: p.block_no,
+      house_no: p.house_no,
+      street_ar: p.street_ar,
+      street_en: p.street_en,
+      neighborhood_ar: p.neighborhood_ar,
+      neighborhood_en: p.neighborhood_en,
+      governorate: p.governorate,
+      lat,
+      lon,
+    };
   }
 
   // ---- Result list --------------------------------------------------------
@@ -1718,10 +1745,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
         .map((h, i) => {
           const street = pick(h.street_ar, h.street_en);
           const nbh = pick(h.neighborhood_ar, h.neighborhood_en);
-          const line1 = [street, h.house_no ? `${t("house")} ${h.house_no}` : null]
-            .filter(Boolean).join(" · ") || `${t("parcel")} ${h.parcel_no ?? "—"}`;
-          const line2 = [nbh, h.block_no ? `${t("block")} ${h.block_no}` : null, h.governorate]
-            .filter(Boolean).join(" · ");
+          // Lead with the parcel's identity, then where it is -- the same
+          // result can be reached by parcel number or by street name, and
+          // both readings need the area to tell duplicates apart.
+          const line1 =
+            [
+              h.parcel_no ? `${t("parcel")} ${h.parcel_no}` : null,
+              h.block_no ? `${t("block")} ${h.block_no}` : null,
+            ].filter(Boolean).join(" · ") || street || "—";
+          const line2 = [
+            [street, h.house_no ? `${t("house")} ${h.house_no}` : null].filter(Boolean).join(" "),
+            nbh,
+            h.governorate,
+          ].filter(Boolean).join(" · ");
           return `<button type="button" class="res-item" data-i="${i}">
                     <b>${line1}</b><span>${line2}</span>
                   </button>`;
