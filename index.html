@@ -1235,10 +1235,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // of a clean value, so 19.999 reads as 20 while a genuine 33.86 is left
   // alone -- rounding that to 34 would invent precision the data doesn't have.
   // "Exact" shows every side as measured, to one decimal.
-  // 10 cm: wide enough to recover the surveyed value from digitisation drift
-  // (p75 of the deviation is ~0.10 m), narrow enough to leave genuinely
-  // irregular sides alone -- 33.855 is 0.145 m from 34.0 so it stays 33.9.
-  const SNAP_TOLERANCE_M = 0.10;
+  // 5 cm. A wider tolerance (10 cm) pulled genuine values onto the wrong half
+  // metre and made the panel contradict itself: 14.401 became 14.5, so the
+  // sides no longer multiplied to the stated area (26 x 14.5 = 377 against a
+  // recorded 374.4). Sides that are truly on a surveyed value sit within a
+  // centimetre or two of it, so this still cleans those up -- measured over
+  // 4,090 sides, 52.1% are within 2 cm and only 52.6% within 5 cm, meaning
+  // almost nothing legitimate lives between the two.
+  const SNAP_TOLERANCE_M = 0.05;
   let exactMode = false;
 
   function fmtSide(metres) {
