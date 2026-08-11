@@ -431,6 +431,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
     cursor: pointer;
     white-space: nowrap;
   }
+  /* Parcel numbers drawn on the plots themselves. Only appear when zoomed in
+     enough that they don't collide -- at neighbourhood zoom they'd be an
+     unreadable smear over hundreds of plots. */
+  .parcel-label {
+    color: #17211b;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    white-space: nowrap;
+    text-shadow:
+      0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+  }
   .side-num {
     background: #c0392b;
     color: #fff;
@@ -1362,6 +1376,32 @@ svg.leaflet-zoom-animated{will-change:transform;}
   const sideLabels = L.layerGroup().addTo(map);
   let selectedOutline = null;
 
+  // ---- Parcel number labels ----------------------------------------------
+  const parcelLabels = L.layerGroup().addTo(map);
+  const LABEL_MIN_ZOOM = 17;
+  let labelledFeatures = [];
+
+  function updateParcelLabels() {
+    parcelLabels.clearLayers();
+    if (map.getZoom() < LABEL_MIN_ZOOM) return;
+    const bounds = map.getBounds();
+    for (const f of labelledFeatures) {
+      const num = f.properties?.parcel_no;
+      if (!num) continue;
+      const ring = f.geometry?.coordinates?.[0];
+      if (!ring?.length) continue;
+      const lat = ring.reduce((s, c) => s + c[1], 0) / ring.length;
+      const lon = ring.reduce((s, c) => s + c[0], 0) / ring.length;
+      if (!bounds.contains([lat, lon])) continue;
+      L.marker([lat, lon], {
+        interactive: false,
+        keyboard: false,
+        icon: L.divIcon({ className: "parcel-label", html: String(num), iconSize: null }),
+      }).addTo(parcelLabels);
+    }
+  }
+  map.on("zoomend", updateParcelLabels);
+
   // Deselect: hides the panel, the red outline and the side numbers.
   function clearSelection() {
     sideLabels.clearLayers();
@@ -1459,7 +1499,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
       row(t("house"), props.house_no ?? "&mdash;") +
       row(t("neighborhood"), nbh ?? "&mdash;") +
       (title ? row(t("title"), title) : "") +
-      row(t("area"), fmtNum(props.computed_area ?? props.measured_area, "m&sup2;")) +
+      // Official area from the municipality; the value computed from the
+      // polygon is only a fallback where they publish none, because a derived
+      // 1000.1 against a recorded 1000 reads as an error.
+      row(t("area"), fmtNum(props.measured_area ?? props.computed_area, "m&sup2;")) +
       `<div><dt>${t("sides")}</dt>${sidesHtml}</div>` +
       `<dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button></dd>`;
     panelEl.classList.add("visible");
@@ -1556,6 +1599,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
         },
       }
     ).addTo(map);
+
+    labelledFeatures = features;
+    updateParcelLabels();
 
     if (matched) showPanel(matched.feature.properties, matched.lyr);
     return plotLayer;
@@ -1794,12 +1840,49 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   document.getElementById("searchForm").addEventListener("submit", (e) => {
     e.preventDefault();
+    clearTimeout(suggestTimer);
     runSearch(document.getElementById("searchInput").value).catch((err) => {
       statusEl.textContent = t("noMatch");
       errEl.textContent = err.message;
       errEl.classList.add("visible");
       console.error(err);
     });
+  });
+
+  // Live suggestions while typing. Deliberately only *lists* matches -- it
+  // never navigates, because jumping the map on a keystroke while someone is
+  // still typing is disorienting. Enter or a click commits.
+  let suggestTimer = null;
+  let suggestSeq = 0;
+  const searchInputEl = document.getElementById("searchInput");
+
+  searchInputEl.addEventListener("input", () => {
+    clearTimeout(suggestTimer);
+    const term = searchInputEl.value.trim();
+    if (term.length < 2) return hideResults();
+
+    suggestTimer = setTimeout(async () => {
+      const seq = ++suggestSeq;
+      try {
+        const bp = term.match(/^(\S+)\s*[/\-]\s*(\S+)$/);
+        let hits;
+        if (bp) {
+          const rows = await api(`rpc/plot_by_block_parcel?blk=${q(bp[1])}&par=${q(bp[2])}`);
+          hits = rows.map(plotToResult);
+        } else if (/^\d+$/.test(term)) {
+          const rows = await api(`rpc/plot_by_parcel_no?par=${q(term)}`);
+          hits = rows.map(plotToResult);
+        } else {
+          hits = await api(`rpc/search_address?term=${q(term)}&max_rows=25`);
+        }
+        // a slower earlier request must not overwrite a newer one
+        if (seq !== suggestSeq) return;
+        if (hits.length) showResults(hits, term);
+        else hideResults();
+      } catch (err) {
+        console.error(err);
+      }
+    }, 300);
   });
 
   // ---- Address cascade ----------------------------------------------------
@@ -1946,9 +2029,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
       rows,
       (r) => r.global_id,
       (r) => {
-        const base = r.house_no
-          ? `${r.parcel_no ?? "—"} — ${t("house")} ${r.house_no}`
-          : r.title || r.parcel_no || "—";
+        // The same parcel number can appear twice in one block, told apart
+        // only by street (1.27% of block+parcel keys), so the street is part
+        // of the label rather than an afterthought.
+        const street = lang === "ar" ? r.street_ar || r.street_en : r.street_en || r.street_ar;
+        const base =
+          [r.parcel_no || r.title || "—", street, r.house_no ? `${t("house")} ${r.house_no}` : null]
+            .filter(Boolean)
+            .join(" · ");
         return r.has_geom ? base : `${base} (${t("noGeom")})`;
       }
     );
