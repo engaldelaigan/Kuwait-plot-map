@@ -588,7 +588,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
     #printArea .meta td { padding: 4px 14px 4px 0; }
     #printArea .mono { font-family: ui-monospace, Consolas, monospace; font-size: 8.5pt; }
     #printArea .diagram { margin: 16px 0; text-align: center; }
-    #printArea .sides { width: 45%; margin-top: 4px; }
+    #printArea .sides { width: 62%; margin-top: 4px; } /* three columns now */
+    #printArea .note { margin: 6px 0 0; font-size: 8.5pt; color: #777; }
     #printArea .sides th, #printArea .sides td {
       border: 1px solid #999; padding: 3px 8px; text-align: left;
     }
@@ -680,6 +681,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       autoNone: "لا يوجد شارع مقابل هذه القسيمة",
       setbackHint: "انقر على حد القسيمة لقياس الارتداد",
       setbackNoEdge: "انقر على حد قسيمة",
+      setbackCol: "الارتداد",
+      setbackUnavailable: "الارتداد غير متاح: قرّب الخريطة وفعّل طبقة حافة الشارع قبل الطباعة.",
       // Arabic has a dual, so "2 أضلاع" is wrong -- it takes ضلعين. A plot
       // never fronts more than a handful of streets, so the plural form only
       // needs to cover 3 and up.
@@ -740,6 +743,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       autoNone: "No street faces this plot",
       setbackHint: "Click a plot boundary to measure the setback",
       setbackNoEdge: "Click on a plot boundary",
+      setbackCol: "Setback",
+      setbackUnavailable: "Setbacks unavailable: zoom in and switch on the road-edge layer before printing.",
       autoDone: (n) => `${n} side${n === 1 ? "" : "s"} measured`,
       clear: "Clear",
       exactBtn: "Exact dims",
@@ -1113,12 +1118,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return t > 0.01 && u >= 0 && u <= 1 ? t : null;
   }
 
-  // Shared by both entry points: the segment lists in a common metre frame.
+  // Shared by every entry point: the segment lists in a common metre frame.
+  // Returns null rather than reporting anything, because the printout needs to
+  // ask the same question without putting a message on screen.
   function setbackContext() {
-    if (map.getZoom() < KERB_MIN_ZOOM || !map.hasLayer(kerbLayer)) {
-      statusEl.textContent = t("autoZoom");
-      return null;
-    }
+    if (map.getZoom() < KERB_MIN_ZOOM || !map.hasLayer(kerbLayer)) return null;
     const lat0 = map.getCenter().lat;
     const kx = mPerDegLon(lat0), ky = mPerDegLat(lat0);
     const kerbs = [], others = [];
@@ -1128,7 +1132,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
         [s.a[0] * kx, s.a[1] * ky, s.b[0] * kx, s.b[1] * ky]
       );
     }
-    if (!kerbs.length) { statusEl.textContent = t("autoZoom"); return null; }
+    if (!kerbs.length) return null;
     return { kx, ky, kerbs, others };
   }
 
@@ -1202,15 +1206,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
     label.on("click", (ev) => { if (!measuring) del(ev); });
   }
 
-  function autoSetback() {
-    if (!selectedProps) { statusEl.textContent = t("autoNoPlot"); return; }
-    const ctx = setbackContext();
-    if (!ctx) return;
+  // The setback of every side of a plot, as { n, metres, ox, oy, nx, ny } --
+  // metres is null where no street faces that side. Shared by the drawing tool
+  // and the printout so the two can never disagree.
+  function sideSetbacks(props, ctx) {
     const { kx, ky, kerbs, others } = ctx;
-    const toLL = (x, y) => L.latLng(y / ky, x / kx);
-
-    const sides = (selectedProps.sides ?? []).filter((s) => s.a && s.b);
-    if (!sides.length) { statusEl.textContent = t("autoNone"); return; }
+    const sides = (props?.sides ?? []).filter((s) => s.a && s.b);
+    if (!sides.length) return [];
 
     // Centroid decides which way is "outward" for each side, so this works on
     // plots at any orientation rather than assuming north-facing frontages.
@@ -1218,12 +1220,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
     for (const s of sides) { cx += s.a[0] * kx; cy += s.a[1] * ky; }
     cx /= sides.length; cy /= sides.length;
 
-    let drawn = 0;
-    for (const side of sides) {
+    return sides.map((side) => {
       const ax = side.a[0] * kx, ay = side.a[1] * ky;
       const bx = side.b[0] * kx, by = side.b[1] * ky;
       const len = Math.hypot(bx - ax, by - ay);
-      if (len < 1) continue;
+      if (len < 1) return { n: side.n, metres: null };
       let nx = -(by - ay) / len, ny = (bx - ax) / len;
       const mx = (ax + bx) / 2, my = (ay + by) / 2;
       if ((mx - cx) * nx + (my - cy) * ny < 0) { nx = -nx; ny = -ny; }
@@ -1238,23 +1239,36 @@ svg.leaflet-zoom-animated{will-change:transform;}
         const d = kerbAlongRay(ox, oy, nx, ny, kerbs, others);
         if (d != null && (!best || d < best.d)) best = { d, ox, oy };
       }
-      if (!best) continue;
+      return best
+        ? { n: side.n, metres: best.d, ox: best.ox, oy: best.oy, nx, ny }
+        : { n: side.n, metres: null };
+    });
+  }
 
+  function autoSetback() {
+    if (!selectedProps) { statusEl.textContent = t("autoNoPlot"); return; }
+    const ctx = setbackContext();
+    if (!ctx) { statusEl.textContent = t("autoZoom"); return; }
+    const { kx, ky } = ctx;
+    const toLL = (x, y) => L.latLng(y / ky, x / kx);
+
+    let drawn = 0;
+    for (const s of sideSetbacks(selectedProps, ctx)) {
+      if (s.metres == null) continue;
       addAutoMeasurement(
-        toLL(best.ox, best.oy),
-        toLL(best.ox + nx * best.d, best.oy + ny * best.d),
-        side.n
+        toLL(s.ox, s.oy),
+        toLL(s.ox + s.nx * s.metres, s.oy + s.ny * s.metres),
+        s.n
       );
       drawn++;
     }
-
     statusEl.textContent = drawn ? t("autoDone", drawn) : t("autoNone");
   }
 
   // One setback from a point the user picked on a boundary.
   function setbackFromPoint(latlng) {
     const ctx = setbackContext();
-    if (!ctx) return;
+    if (!ctx) { statusEl.textContent = t("autoZoom"); return; }
     const { kx, ky, kerbs, others } = ctx;
     const edge = nearestPlotEdge(latlng, kx, ky, 14 * metersPerPixel());
     if (!edge) { statusEl.textContent = t("setbackNoEdge"); return; }
@@ -1730,14 +1744,23 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   // A self-contained SVG of the parcel with numbered, dimensioned edges --
   // drawn from the projected geometry so it prints without needing map tiles.
-  function buildPlotSvg(geomWgs, sides) {
+  function buildPlotSvg(geomWgs, sides, setbacks) {
     const lonlat = geomWgs?.coordinates?.[0];
     if (!lonlat) return "";
     // Project to local metres so the drawing has true proportions (a degree of
     // longitude is much shorter than a degree of latitude at this latitude).
     const lat0 = lonlat[0][1];
     const kx = mPerDegLon(lat0), ky = mPerDegLat(lat0);
-    const ring = lonlat.map(([lon, lat]) => [lon * kx, lat * ky]);
+    // The SAME simplified ring the side lengths come from. Indexing the raw
+    // ring here put every label on the wrong edge whenever simplification had
+    // merged a redundant vertex, which is most plots.
+    const simple = simplifyRing(lonlat);
+    // Shifted to a local origin. Absolute metres put the viewBox at ~4.6
+    // million with a ~40-unit viewport, and renderers rasterise in single
+    // precision, where that quantises to about half a metre -- enough to
+    // visibly deform a house plot.
+    const ox0 = lonlat[0][0] * kx, oy0 = lat0 * ky;
+    const ring = simple.map(([lon, lat]) => [lon * kx - ox0, lat * ky - oy0]);
     const xs = ring.map((p) => p[0]);
     const ys = ring.map((p) => p[1]);
     const minx = Math.min(...xs), maxx = Math.max(...xs);
@@ -1762,8 +1785,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
         const len = Math.hypot(dx, dy) || 1;
         const ox = mx + (dx / len) * fs * 1.1;
         const oy = my + (dy / len) * fs * 1.1;
+        // Third line, in the kerb colour, only where a street actually faces
+        // this side -- on most plots that is one or two of the four.
+        const sb = setbacks?.get(s.n);
+        const sbText = sb == null ? "" :
+          `<text x="${ox}" y="${oy + fs * 1.75}" font-size="${fs * 0.66}" text-anchor="middle" dominant-baseline="middle" fill="#c0392b">${sb.toFixed(2)} m</text>`;
         return `<text x="${ox}" y="${oy}" font-size="${fs}" text-anchor="middle" dominant-baseline="middle" fill="#17211b">${s.n}</text>
-                <text x="${ox}" y="${oy + fs}" font-size="${fs * 0.72}" text-anchor="middle" dominant-baseline="middle" fill="#5b6b60">${fmtSide(s.length).replace("&mdash;", "—")}</text>`;
+                <text x="${ox}" y="${oy + fs}" font-size="${fs * 0.72}" text-anchor="middle" dominant-baseline="middle" fill="#5b6b60">${fmtSide(s.length).replace("&mdash;", "—")}</text>${sbText}`;
       })
       .join("");
 
@@ -1843,8 +1871,21 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const nbh = lang === "ar"
       ? props.neighborhood_ar || props.neighborhood_en
       : props.neighborhood_en || props.neighborhood_ar;
+    // Setbacks are computed here rather than read off whatever happens to be
+    // drawn, so a printout is complete even if nothing was measured on screen.
+    // They need the kerb layer, so zoomed out they are simply absent.
+    const ctx = setbackContext();
+    const setbacks = new Map();
+    if (ctx) {
+      for (const s of sideSetbacks(props, ctx)) {
+        if (s.metres != null) setbacks.set(s.n, s.metres);
+      }
+    }
     const rows = props.sides
-      .map((s) => `<tr><td>${s.n}</td><td>${fmtSide(s.length)}</td></tr>`)
+      .map((s) => {
+        const sb = setbacks.get(s.n);
+        return `<tr><td>${s.n}</td><td>${fmtSide(s.length)}</td><td>${sb == null ? "—" : sb.toFixed(2) + " m"}</td></tr>`;
+      })
       .join("");
     document.getElementById("printArea").innerHTML = `
       <h1>${t("parcel")} ${props.parcel_no ?? ""} &mdash; ${t("block")} ${props.block_no ?? ""}</h1>
@@ -1854,8 +1895,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
         <tr><th>${t("paci")}</th><td>${props.paci_no?.trim() || "—"}</td><th>${t("globalId")}</th><td class="mono">${props.global_id ?? "—"}</td></tr>
         <tr><th>${t("area")}</th><td>${props.measured_area ?? "—"} m²</td><th>${t("perimeter")}</th><td>${props.shape_length != null ? Number(props.shape_length).toFixed(2) : "—"} m</td></tr>
       </table>
-      <div class="diagram">${buildPlotSvg(props.geom, props.sides)}</div>
-      <table class="sides"><thead><tr><th>${t("side")}</th><th>${t("length")}</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="diagram">${buildPlotSvg(props.geom, props.sides, setbacks)}</div>
+      <table class="sides"><thead><tr><th>${t("side")}</th><th>${t("length")}</th><th>${t("setbackCol")}</th></tr></thead><tbody>${rows}</tbody></table>
+      ${ctx ? "" : `<p class="note">${t("setbackUnavailable")}</p>`}
       <p class="foot">${t("source")}. ${t("printed")}: ${new Date().toLocaleString(lang === "ar" ? "ar-KW" : "en-GB")}.</p>
     `;
     window.print();
