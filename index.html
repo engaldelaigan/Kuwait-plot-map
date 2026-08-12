@@ -507,6 +507,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     #searchForm button,
     #showAreaBtn,
     #measureBtn,
+    #autoBtn,
     #clearBtn,
     #exactBtn,
     #langBtn {
@@ -611,6 +612,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       <label id="perpWrap"><input type="checkbox" id="perpChk" /> <span data-i18n="perp">&perp; to edge</span></label>
       <button id="exactBtn" type="button" data-i18n="exactBtn">Exact</button>
       <button id="measureBtn" type="button" data-i18n="measure">Measure</button>
+      <button id="autoBtn" type="button" data-i18n="autoSetback">Auto setback</button>
       <button id="clearBtn" type="button" data-i18n="clear">Clear</button>
       <button id="langBtn" type="button">EN</button>
     </div>
@@ -660,6 +662,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
       snapStart: "تثبيت نقطة البداية",
       perp: "عمودي على الحد",
       measure: "قياس",
+      autoSetback: "قياس تلقائي",
+      autoNoPlot: "اختر قسيمة أولاً",
+      autoZoom: "قرّب أكثر لتحميل حافة الشارع",
+      autoNone: "لا يوجد شارع مقابل هذه القسيمة",
+      // Arabic has a dual, so "2 أضلاع" is wrong -- it takes ضلعين. A plot
+      // never fronts more than a handful of streets, so the plural form only
+      // needs to cover 3 and up.
+      autoDone: (n) =>
+        n === 1 ? "تم قياس ضلع واحد" : n === 2 ? "تم قياس ضلعين" : `تم قياس ${n} أضلاع`,
       clear: "مسح",
       exactBtn: "الأبعاد الدقيقة",
       parcel: "القسيمة",
@@ -709,6 +720,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       snapStart: "Snap start point",
       perp: "⊥ to edge",
       measure: "Measure",
+      autoSetback: "Auto setback",
+      autoNoPlot: "Select a plot first",
+      autoZoom: "Zoom in to load the road edge",
+      autoNone: "No street faces this plot",
+      autoDone: (n) => `${n} side${n === 1 ? "" : "s"} measured`,
       clear: "Clear",
       exactBtn: "Exact dims",
       parcel: "Parcel",
@@ -1058,6 +1074,133 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(2)} m`;
   }
 
+  // ---- Automatic setback --------------------------------------------------
+  // Draws the perpendicular from every street-facing side of the selected plot
+  // to the kerb in one press, instead of asking for a careful drag per side.
+  // Same idea as the manual perpendicular lock, applied to all sides at once.
+  //
+  // A side only counts as street-facing if its ray reaches the kerb WITHOUT
+  // crossing another plot boundary first. Without that test a back garden gets
+  // "measured" to whatever road happens to lie beyond the neighbours, which
+  // looks like an answer but is meaningless.
+  const AUTO_MAX_M = 60; // past this, nothing on the plot fronts that road
+
+  // Distance along ray (o + t*d) to segment ab, or null if it misses.
+  function rayHitM(ox, oy, dx, dy, ax, ay, bx, by) {
+    const sx = bx - ax, sy = by - ay;
+    const den = dx * sy - dy * sx;
+    if (Math.abs(den) < 1e-12) return null; // parallel
+    const t = ((ax - ox) * sy - (ay - oy) * sx) / den;
+    const u = ((ax - ox) * dy - (ay - oy) * dx) / den;
+    return t > 0.01 && u >= 0 && u <= 1 ? t : null;
+  }
+
+  function addAutoMeasurement(from, to, sideNo) {
+    // Vincenty for the label, so an automatic line and a hand-drawn one over
+    // the same gap report the same number.
+    const metres = geodesicMetres([from.lng, from.lat], [to.lng, to.lat]);
+    const line = L.polyline([from, to], { color: "#c0392b", weight: 3 }).addTo(map);
+    const label = L.tooltip({
+      permanent: true, direction: "top", className: "measure-label", interactive: true,
+    })
+      .setLatLng(L.latLng((from.lat + to.lat) / 2, (from.lng + to.lng) / 2))
+      .setContent(`${sideNo} &mdash; ${fmtDistance(metres)}`)
+      .addTo(map);
+
+    const pair = L.layerGroup([line, label]);
+    measurements.addLayer(pair);
+    const del = (ev) => {
+      if (ev?.originalEvent) {
+        ev.originalEvent.preventDefault();
+        ev.originalEvent.stopPropagation();
+      }
+      measurements.removeLayer(pair);
+    };
+    line.on("contextmenu", del);
+    label.on("contextmenu", del);
+    label.on("click", (ev) => { if (!measuring) del(ev); });
+  }
+
+  function autoSetback() {
+    if (!selectedProps) { statusEl.textContent = t("autoNoPlot"); return; }
+    // The kerb layer is the whole basis of this, and it is not loaded when
+    // zoomed out or switched off.
+    if (map.getZoom() < KERB_MIN_ZOOM || !map.hasLayer(kerbLayer)) {
+      statusEl.textContent = t("autoZoom");
+      return;
+    }
+    const sides = (selectedProps.sides ?? []).filter((s) => s.a && s.b);
+    if (!sides.length) { statusEl.textContent = t("autoNone"); return; }
+
+    const lat0 = sides[0].a[1];
+    const kx = mPerDegLon(lat0), ky = mPerDegLat(lat0);
+    const toLL = (x, y) => L.latLng(y / ky, x / kx);
+
+    const kerbs = [], others = [];
+    for (const s of snapSegs) {
+      if (s.kind !== "kerb" && s.kind !== "plot") continue;
+      (s.kind === "kerb" ? kerbs : others).push(
+        [s.a[0] * kx, s.a[1] * ky, s.b[0] * kx, s.b[1] * ky]
+      );
+    }
+    if (!kerbs.length) { statusEl.textContent = t("autoZoom"); return; }
+
+    // Centroid decides which way is "outward" for each side, so this works on
+    // plots at any orientation rather than assuming north-facing frontages.
+    let cx = 0, cy = 0;
+    for (const s of sides) { cx += s.a[0] * kx; cy += s.a[1] * ky; }
+    cx /= sides.length; cy /= sides.length;
+
+    let drawn = 0;
+    for (const side of sides) {
+      const ax = side.a[0] * kx, ay = side.a[1] * ky;
+      const bx = side.b[0] * kx, by = side.b[1] * ky;
+      const len = Math.hypot(bx - ax, by - ay);
+      if (len < 1) continue;
+      let nx = -(by - ay) / len, ny = (bx - ax) / len;
+      const mx = (ax + bx) / 2, my = (ay + by) / 2;
+      if ((mx - cx) * nx + (my - cy) * ny < 0) { nx = -nx; ny = -ny; }
+
+      // Several rays along the side, not just one from the midpoint: a single
+      // ray can slip through a junction or a gap and report a corridor far
+      // wider than the street. The shortest valid one is the setback.
+      let best = null;
+      for (let k = 1; k <= 9; k++) {
+        const f = k / 10;
+        const ox = ax + (bx - ax) * f, oy = ay + (by - ay) * f;
+
+        let dk = Infinity;
+        for (const s of kerbs) {
+          const d = rayHitM(ox, oy, nx, ny, s[0], s[1], s[2], s[3]);
+          if (d !== null && d < dk) dk = d;
+        }
+        if (!Number.isFinite(dk) || dk > AUTO_MAX_M) continue;
+
+        // Ignore hits right at the origin -- that is this plot's own boundary.
+        let dp = Infinity;
+        for (const s of others) {
+          const d = rayHitM(ox, oy, nx, ny, s[0], s[1], s[2], s[3]);
+          if (d !== null && d > 0.3 && d < dp) dp = d;
+        }
+        if (dp < dk) continue; // a neighbouring plot blocks the way
+
+        if (!best || dk < best.d) best = { d: dk, ox, oy };
+      }
+      if (!best) continue;
+
+      addAutoMeasurement(
+        toLL(best.ox, best.oy),
+        toLL(best.ox + nx * best.d, best.oy + ny * best.d),
+        side.n
+      );
+      drawn++;
+    }
+
+    statusEl.textContent = drawn ? t("autoDone", drawn) : t("autoNone");
+  }
+
+  document.getElementById("autoBtn").addEventListener("click", autoSetback);
+
   const measureBtn = document.getElementById("measureBtn");
   measureBtn.addEventListener("click", () => {
     measuring = !measuring;
@@ -1394,6 +1537,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
         n: i + 1,
         length: geodesicMetres(ring[i], ring[i + 1]),
         mid: L.latLng((ring[i][1] + ring[i + 1][1]) / 2, (ring[i][0] + ring[i + 1][0]) / 2),
+        // Endpoints kept so the automatic setback can work off the same
+        // simplified sides the panel numbers, rather than the raw ring.
+        a: ring[i],
+        b: ring[i + 1],
       });
     }
     return sides;
