@@ -196,10 +196,22 @@ svg.leaflet-zoom-animated{will-change:transform;}
     color: var(--ink);
     cursor: pointer;
   }
-  #measureBtn.active, #exactBtn.active {
+  #measureBtn.active, #exactBtn.active, #autoBtn.active {
     background: var(--accent);
     border-color: var(--accent);
     color: #fff;
+  }
+  /* Same chrome as the measure button: it is the same kind of control. */
+  #autoBtn {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 10px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--paper);
+    color: var(--ink);
+    cursor: pointer;
   }
   #exactBtn {
     font: inherit;
@@ -666,6 +678,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       autoNoPlot: "اختر قسيمة أولاً",
       autoZoom: "قرّب أكثر لتحميل حافة الشارع",
       autoNone: "لا يوجد شارع مقابل هذه القسيمة",
+      setbackHint: "انقر على حد القسيمة لقياس الارتداد",
+      setbackNoEdge: "انقر على حد قسيمة",
       // Arabic has a dual, so "2 أضلاع" is wrong -- it takes ضلعين. A plot
       // never fronts more than a handful of streets, so the plural form only
       // needs to cover 3 and up.
@@ -724,6 +738,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       autoNoPlot: "Select a plot first",
       autoZoom: "Zoom in to load the road edge",
       autoNone: "No street faces this plot",
+      setbackHint: "Click a plot boundary to measure the setback",
+      setbackNoEdge: "Click on a plot boundary",
       autoDone: (n) => `${n} side${n === 1 ? "" : "s"} measured`,
       clear: "Clear",
       exactBtn: "Exact dims",
@@ -1074,12 +1090,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(2)} m`;
   }
 
-  // ---- Automatic setback --------------------------------------------------
-  // Draws the perpendicular from every street-facing side of the selected plot
-  // to the kerb in one press, instead of asking for a careful drag per side.
-  // Same idea as the manual perpendicular lock, applied to all sides at once.
+  // ---- Setback (الارتداد) -------------------------------------------------
+  // A mode, not a one-shot action. Switching it on draws the perpendicular from
+  // every street-facing side of the selected plot to the kerb; while it stays
+  // on, clicking anywhere on a plot boundary adds one more line from exactly
+  // that point, because the automatic choice is not always the spot you care
+  // about.
   //
-  // A side only counts as street-facing if its ray reaches the kerb WITHOUT
+  // A ray only counts as reaching the street if it gets to the kerb WITHOUT
   // crossing another plot boundary first. Without that test a back garden gets
   // "measured" to whatever road happens to lie beyond the neighbours, which
   // looks like an answer but is meaningless.
@@ -1095,6 +1113,68 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return t > 0.01 && u >= 0 && u <= 1 ? t : null;
   }
 
+  // Shared by both entry points: the segment lists in a common metre frame.
+  function setbackContext() {
+    if (map.getZoom() < KERB_MIN_ZOOM || !map.hasLayer(kerbLayer)) {
+      statusEl.textContent = t("autoZoom");
+      return null;
+    }
+    const lat0 = map.getCenter().lat;
+    const kx = mPerDegLon(lat0), ky = mPerDegLat(lat0);
+    const kerbs = [], others = [];
+    for (const s of snapSegs) {
+      if (s.kind !== "kerb" && s.kind !== "plot") continue;
+      (s.kind === "kerb" ? kerbs : others).push(
+        [s.a[0] * kx, s.a[1] * ky, s.b[0] * kx, s.b[1] * ky]
+      );
+    }
+    if (!kerbs.length) { statusEl.textContent = t("autoZoom"); return null; }
+    return { kx, ky, kerbs, others };
+  }
+
+  // How far to the kerb along this ray, or null if it never gets there --
+  // either nothing within range, or a neighbouring plot in the way.
+  function kerbAlongRay(ox, oy, nx, ny, kerbs, others) {
+    let dk = Infinity;
+    for (const s of kerbs) {
+      const d = rayHitM(ox, oy, nx, ny, s[0], s[1], s[2], s[3]);
+      if (d !== null && d < dk) dk = d;
+    }
+    if (!Number.isFinite(dk) || dk > AUTO_MAX_M) return null;
+    // Hits within 30 cm are this plot's own boundary, not a neighbour's.
+    let dp = Infinity;
+    for (const s of others) {
+      const d = rayHitM(ox, oy, nx, ny, s[0], s[1], s[2], s[3]);
+      if (d !== null && d > 0.3 && d < dp) dp = d;
+    }
+    return dp < dk ? null : dk;
+  }
+
+  // The plot edge under the cursor, and the exact point on it, so a clicked
+  // setback starts on the boundary rather than wherever the finger landed.
+  function nearestPlotEdge(latlng, kx, ky, maxM) {
+    const px = latlng.lng * kx, py = latlng.lat * ky;
+    let best = null, bestD = maxM;
+    for (const s of snapSegs) {
+      if (s.kind !== "plot") continue;
+      const ax = s.a[0] * kx, ay = s.a[1] * ky;
+      const bx = s.b[0] * kx, by = s.b[1] * ky;
+      const dx = bx - ax, dy = by - ay;
+      const l2 = dx * dx + dy * dy;
+      if (l2 === 0) continue;
+      let tt = ((px - ax) * dx + (py - ay) * dy) / l2;
+      tt = tt < 0 ? 0 : tt > 1 ? 1 : tt;
+      const cx = ax + tt * dx, cy = ay + tt * dy;
+      const d = Math.hypot(px - cx, py - cy);
+      if (d < bestD) {
+        bestD = d;
+        const len = Math.sqrt(l2);
+        best = { x: cx, y: cy, nx: -dy / len, ny: dx / len };
+      }
+    }
+    return best;
+  }
+
   function addAutoMeasurement(from, to, sideNo) {
     // Vincenty for the label, so an automatic line and a hand-drawn one over
     // the same gap report the same number.
@@ -1104,7 +1184,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       permanent: true, direction: "top", className: "measure-label", interactive: true,
     })
       .setLatLng(L.latLng((from.lat + to.lat) / 2, (from.lng + to.lng) / 2))
-      .setContent(`${sideNo} &mdash; ${fmtDistance(metres)}`)
+      // A hand-placed line has no side number to show.
+      .setContent(sideNo == null ? fmtDistance(metres) : `${sideNo} &mdash; ${fmtDistance(metres)}`)
       .addTo(map);
 
     const pair = L.layerGroup([line, label]);
@@ -1123,27 +1204,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   function autoSetback() {
     if (!selectedProps) { statusEl.textContent = t("autoNoPlot"); return; }
-    // The kerb layer is the whole basis of this, and it is not loaded when
-    // zoomed out or switched off.
-    if (map.getZoom() < KERB_MIN_ZOOM || !map.hasLayer(kerbLayer)) {
-      statusEl.textContent = t("autoZoom");
-      return;
-    }
-    const sides = (selectedProps.sides ?? []).filter((s) => s.a && s.b);
-    if (!sides.length) { statusEl.textContent = t("autoNone"); return; }
-
-    const lat0 = sides[0].a[1];
-    const kx = mPerDegLon(lat0), ky = mPerDegLat(lat0);
+    const ctx = setbackContext();
+    if (!ctx) return;
+    const { kx, ky, kerbs, others } = ctx;
     const toLL = (x, y) => L.latLng(y / ky, x / kx);
 
-    const kerbs = [], others = [];
-    for (const s of snapSegs) {
-      if (s.kind !== "kerb" && s.kind !== "plot") continue;
-      (s.kind === "kerb" ? kerbs : others).push(
-        [s.a[0] * kx, s.a[1] * ky, s.b[0] * kx, s.b[1] * ky]
-      );
-    }
-    if (!kerbs.length) { statusEl.textContent = t("autoZoom"); return; }
+    const sides = (selectedProps.sides ?? []).filter((s) => s.a && s.b);
+    if (!sides.length) { statusEl.textContent = t("autoNone"); return; }
 
     // Centroid decides which way is "outward" for each side, so this works on
     // plots at any orientation rather than assuming north-facing frontages.
@@ -1168,23 +1235,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       for (let k = 1; k <= 9; k++) {
         const f = k / 10;
         const ox = ax + (bx - ax) * f, oy = ay + (by - ay) * f;
-
-        let dk = Infinity;
-        for (const s of kerbs) {
-          const d = rayHitM(ox, oy, nx, ny, s[0], s[1], s[2], s[3]);
-          if (d !== null && d < dk) dk = d;
-        }
-        if (!Number.isFinite(dk) || dk > AUTO_MAX_M) continue;
-
-        // Ignore hits right at the origin -- that is this plot's own boundary.
-        let dp = Infinity;
-        for (const s of others) {
-          const d = rayHitM(ox, oy, nx, ny, s[0], s[1], s[2], s[3]);
-          if (d !== null && d > 0.3 && d < dp) dp = d;
-        }
-        if (dp < dk) continue; // a neighbouring plot blocks the way
-
-        if (!best || dk < best.d) best = { d: dk, ox, oy };
+        const d = kerbAlongRay(ox, oy, nx, ny, kerbs, others);
+        if (d != null && (!best || d < best.d)) best = { d, ox, oy };
       }
       if (!best) continue;
 
@@ -1199,10 +1251,83 @@ svg.leaflet-zoom-animated{will-change:transform;}
     statusEl.textContent = drawn ? t("autoDone", drawn) : t("autoNone");
   }
 
-  document.getElementById("autoBtn").addEventListener("click", autoSetback);
+  // One setback from a point the user picked on a boundary.
+  function setbackFromPoint(latlng) {
+    const ctx = setbackContext();
+    if (!ctx) return;
+    const { kx, ky, kerbs, others } = ctx;
+    const edge = nearestPlotEdge(latlng, kx, ky, 14 * metersPerPixel());
+    if (!edge) { statusEl.textContent = t("setbackNoEdge"); return; }
+
+    // Both perpendicular directions are tried and whichever actually reaches a
+    // road wins. The click identifies an edge, not a side of a known polygon,
+    // so there is no centroid available to say which way is "out".
+    let best = null;
+    for (const sign of [1, -1]) {
+      const nx = edge.nx * sign, ny = edge.ny * sign;
+      const d = kerbAlongRay(edge.x, edge.y, nx, ny, kerbs, others);
+      if (d != null && (!best || d < best.d)) best = { d, nx, ny };
+    }
+    if (!best) { statusEl.textContent = t("autoNone"); return; }
+
+    addAutoMeasurement(
+      L.latLng(edge.y / ky, edge.x / kx),
+      L.latLng((edge.y + best.ny * best.d) / ky, (edge.x + best.nx * best.d) / kx),
+      null
+    );
+    statusEl.textContent = t("setbackHint");
+  }
+
+  // ---- Setback mode -------------------------------------------------------
+  const autoBtn = document.getElementById("autoBtn");
+  let setbackMode = false;
+
+  function setSetbackMode(on) {
+    setbackMode = on;
+    autoBtn.classList.toggle("active", on);
+    // Borrows the measuring container class purely for `touch-action: none`,
+    // so a drag on a phone does not scroll the page instead of registering.
+    map.getContainer().classList.toggle("measuring", on);
+    map.getContainer().style.cursor = on ? "crosshair" : "";
+    // Leaflet drags on mousedown, not pointerdown, so stopping the pointer
+    // event is not enough -- without this, a click would place a line and pan
+    // the map at the same time.
+    if (on) map.dragging.disable();
+    else { map.dragging.enable(); setSnapMarker(null, null); }
+  }
+
+  autoBtn.addEventListener("click", () => {
+    // The two drawing modes fight over the same clicks, so only one at a time.
+    if (!setbackMode && measuring) measureBtn.click();
+    setSetbackMode(!setbackMode);
+    if (!setbackMode) { statusEl.textContent = ""; return; }
+    // Entering the mode still does the whole plot at once -- that is the fast
+    // path -- and clicking afterwards adds lines wherever you want them.
+    if (selectedProps) autoSetback();
+    else statusEl.textContent = t("setbackHint");
+  });
+
+  // Capture phase, like the ruler: the plot polygons cover the view and call
+  // stopPropagation on pointerdown, so a bubble-phase listener never fires.
+  map.getContainer().addEventListener("pointermove", (e) => {
+    if (!setbackMode || measuring) return;
+    const ll = map.mouseEventToLatLng(e);
+    const kx = mPerDegLon(ll.lat), ky = mPerDegLat(ll.lat);
+    const edge = nearestPlotEdge(ll, kx, ky, 14 * metersPerPixel());
+    setSnapMarker(edge ? L.latLng(edge.y / ky, edge.x / kx) : null, edge ? "plot" : null);
+  }, true);
+
+  map.getContainer().addEventListener("pointerdown", (e) => {
+    if (!setbackMode || measuring) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setbackFromPoint(map.mouseEventToLatLng(e));
+  }, true);
 
   const measureBtn = document.getElementById("measureBtn");
   measureBtn.addEventListener("click", () => {
+    // Leaving setback mode on would let its handler swallow the ruler's clicks.
+    if (!measuring && setbackMode) setSetbackMode(false);
     measuring = !measuring;
     measureBtn.classList.toggle("active", measuring);
     map.getContainer().style.cursor = measuring ? "crosshair" : "";
@@ -1225,6 +1350,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (measuring) cancelInProgress();
+    else if (setbackMode) { setSetbackMode(false); statusEl.textContent = ""; }
     else if (resultsEl.classList.contains("visible")) hideResults();
     else clearSelection();
   });
@@ -1795,7 +1921,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
           }
           lyr.on("click", () => {
             plotJustClicked = true;
-            if (!measuring) showPanel(feature.properties, lyr);
+            // In setback mode a click means "measure from here", so it must not
+            // also swap the selected plot out from under the measurement.
+            if (!measuring && !setbackMode) showPanel(feature.properties, lyr);
           });
           lyr.on("mouseover", () => lyr.setStyle({ fillOpacity: 0.75 }));
           lyr.on("mouseout", () => lyr.setStyle({ fillOpacity: 0.45 }));
