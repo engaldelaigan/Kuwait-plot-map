@@ -670,6 +670,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       house: "رقم المنزل",
       title: "الاسم",
       area: "المساحة",
+      setback: "المسافة إلى الشارع",
       perimeter: "المحيط",
       sides: "أطوال الأضلاع",
       globalId: "المعرف",
@@ -718,6 +719,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       house: "House no.",
       title: "Name",
       area: "Measured area",
+      setback: "Distance to street",
       perimeter: "Perimeter",
       sides: "Side lengths",
       globalId: "Global ID",
@@ -790,10 +792,24 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   const roadsLayer = L.layerGroup();
   const blocksLayer = L.layerGroup().addTo(map);
+  // The paved-road polygons: the actual kerb. On by default, because "how far
+  // back is the plot from the road" is what this app is for, and this is the
+  // only layer that answers it correctly.
+  const kerbLayer = L.layerGroup().addTo(map);
   L.control
     .layers(
       { "OpenStreetMap": tiles, Satellite: satellite },
-      { "Street edges (blocks)": blocksLayer, "Road centrelines": roadsLayer },
+      // Named for what they actually are. "Street edges" was wrong -- the block
+      // layer is a planning boundary, typically ~100 m from any plot, never a
+      // kerb; and the road layer is a centreline, so it sits half a carriageway
+      // beyond the kerb. Measuring to either and calling it "distance to the
+      // street" overstates the setback, which is exactly the mistake the old
+      // labels invited.
+      {
+        "حافة الشارع · Road edge (kerb)": kerbLayer,
+        "حدود القطاع · Block boundaries": blocksLayer,
+        "محاور الشوارع · Street centrelines": roadsLayer,
+      },
       // Expanded is handy on a desktop; on a phone it covers a third of the
       // map, so it collapses to an icon there.
       { collapsed: window.innerWidth <= 760 }
@@ -825,15 +841,21 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // edges and road lines, so measuring "from this corner to that street" is
   // exact rather than eyeballed.
   // Snap targets carry a `kind` so the indicator can show what you're locking
-  // onto: plot boundaries vs street edges (block boundaries) are different
-  // things and it matters which one a measurement ends on.
+  // onto. It matters a great deal which one a measurement ends on:
+  //   plot  -- a parcel boundary
+  //   kerb  -- the edge of the paved road. This is what the municipality's own
+  //            KME Guide measures to, and the only correct target for "how far
+  //            is the plot from the street".
+  //   block -- a planning boundary, typically ~100 m away. Not a kerb, despite
+  //            what this layer used to be called.
+  //   road  -- a centreline, half a carriageway beyond the kerb.
   const snapVerts = []; // { p:[lng,lat], kind }
   const snapSegs = []; // { a:[lng,lat], b:[lng,lat], kind }
   // Road centrelines are kept apart: they only count as snap targets while
   // that layer is actually switched on. Snapping to geometry you can't see is
   // just a wrong answer you can't diagnose.
   const roadSnapSegs = [];
-  const SNAP_COLORS = { plot: "#2d7a3e", street: "#e67e22", road: "#8e44ad" };
+  const SNAP_COLORS = { plot: "#2d7a3e", kerb: "#c0392b", street: "#e67e22", road: "#8e44ad" };
 
   let measuring = false;
   let measureStart = null; // anchor while a line is being drawn
@@ -1507,11 +1529,41 @@ svg.leaflet-zoom-animated{will-change:transform;}
       // polygon is only a fallback where they publish none, because a derived
       // 1000.1 against a recorded 1000 reads as an error.
       row(t("area"), fmtNum(props.measured_area ?? props.computed_area, "m&sup2;")) +
+      // Filled in below: it needs a round trip, and the panel should not wait.
+      `<div><dt>${t("setback")}</dt><dd id="setbackVal">…</dd></div>` +
       `<div><dt>${t("sides")}</dt>${sidesHtml}</div>` +
       `<dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button></dd>`;
     panelEl.classList.add("visible");
     showSideLabels(props, layer);
     document.getElementById("printBtn").addEventListener("click", () => printPlot(props));
+    loadSetback(props.global_id);
+  }
+
+  // Distance from the plot to the nearest paved road, measured against the
+  // municipality's own road-edge polygons. This is the figure their KME Guide
+  // reports, and the one people actually want -- not the distance to a
+  // centreline, which is half a carriageway longer.
+  //
+  // Sequenced so a slow reply for a previously selected plot cannot land in the
+  // panel of the one now open.
+  let setbackSeq = 0;
+  async function loadSetback(gis) {
+    const seq = ++setbackSeq;
+    const el = () => document.getElementById("setbackVal");
+    if (!gis) { if (el()) el().innerHTML = "&mdash;"; return; }
+    let rows = [];
+    try {
+      rows = await api(`rpc/plot_setback?gis=${encodeURIComponent(gis)}`);
+    } catch {
+      if (seq === setbackSeq && el()) el().innerHTML = "&mdash;";
+      return;
+    }
+    if (seq !== setbackSeq) return;
+    const target = el();
+    if (!target) return;
+    const m = rows?.[0]?.metres;
+    // No road within 60 m means the lookup found nothing, not a setback of 0.
+    target.innerHTML = m == null ? "&mdash;" : `${Number(m).toFixed(1)} m`;
   }
 
   function printPlot(props) {
@@ -1637,11 +1689,72 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return features;
   }
 
+  // The kerb: paved-road polygons from the municipality's Road Edge Area layer.
+  // Only subtype 7 (Road) is treated as a snap target -- that is the
+  // carriageway, and measuring to it reproduces KME Guide to within 10 cm on
+  // both plots we have ground truth for. Pavements, islands and roundabouts are
+  // drawn faintly for context but are not snapped to, since they are not what
+  // "distance to the street" means.
+  const KERB_ROAD_SUBTYPE = 7;
+  // A viewport's worth of road polygons is ~1.5 s on the wire -- they carry far
+  // more vertices than the parcels do. Nobody measures a setback zoomed out, so
+  // below this the layer is skipped entirely rather than made to slow down
+  // panning on a phone.
+  const KERB_MIN_ZOOM = 16;
+  async function loadKerbsInView() {
+    if (map.getZoom() < KERB_MIN_ZOOM) {
+      kerbLayer.clearLayers();
+      for (let i = snapSegs.length - 1; i >= 0; i--) {
+        if (snapSegs[i].kind === "kerb") snapSegs.splice(i, 1);
+      }
+      return;
+    }
+    const b = map.getBounds();
+    const rows = await api(
+      `rpc/road_edges_in_bbox?min_lon=${b.getWest()}&min_lat=${b.getSouth()}` +
+        `&max_lon=${b.getEast()}&max_lat=${b.getNorth()}`
+    ).catch(() => []);
+
+    kerbLayer.clearLayers();
+    for (let i = snapSegs.length - 1; i >= 0; i--) {
+      if (snapSegs[i].kind === "kerb") snapSegs.splice(i, 1);
+    }
+
+    const roads = [], other = [];
+    for (const row of rows) {
+      if (!row.geom) continue;
+      const isRoad = row.subtype === KERB_ROAD_SUBTYPE;
+      (isRoad ? roads : other).push({
+        type: "Feature", geometry: row.geom, properties: { name_ar: row.name_ar },
+      });
+      if (!isRoad) continue;
+      const polys = row.geom.type === "MultiPolygon" ? row.geom.coordinates : [row.geom.coordinates];
+      for (const poly of polys)
+        for (const ring of poly)
+          for (let i = 0; i < ring.length - 1; i++)
+            snapSegs.push({ a: ring[i], b: ring[i + 1], kind: "kerb" });
+    }
+
+    L.geoJSON(
+      { type: "FeatureCollection", features: other },
+      { style: { color: "#95a5a6", weight: 1, fill: false, opacity: 0.5 }, interactive: false }
+    ).addTo(kerbLayer);
+    L.geoJSON(
+      { type: "FeatureCollection", features: roads },
+      {
+        style: { color: "#c0392b", weight: 1.5, fill: false, opacity: 0.85 },
+        onEachFeature: (f, lyr) => {
+          if (f.properties.name_ar) lyr.bindTooltip(f.properties.name_ar);
+        },
+      }
+    ).addTo(kerbLayer);
+  }
+
   // Road centrelines for the current view. They are snap targets, but
   // deliberately NOT vertices and marked as a distinct kind: a centreline runs
   // down the middle of the carriageway, so snapping a "distance to the street"
-  // measurement to it overshoots by half a road width. Block boundaries
-  // (kind "street") are the kerb line and are what you usually want.
+  // measurement to it overshoots by half a road width. The kerb layer above is
+  // what you actually want.
   async function loadRoadsInView() {
     const b = map.getBounds();
     const rows = await api(
@@ -1671,8 +1784,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
     ).addTo(roadsLayer);
   }
 
-  // Block boundaries = the kerb line where a block meets the street. These are
-  // the primary snap target for "how far is this plot from the street".
+  // Planning-block boundaries. These were once described here as "the kerb
+  // line" -- they are not, and measuring against them was one source of the
+  // inflated setbacks: the median block boundary is ~100 m from any plot, and
+  // none is within 1 m. They stay because they show how an area is divided up.
   async function loadBlocksInView() {
     const b = map.getBounds();
     const rows = await api(
@@ -2086,6 +2201,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const [features] = await Promise.all([
       loadPlotsInView(opts),
       loadBlocksInView(),
+      map.hasLayer(kerbLayer) ? loadKerbsInView() : Promise.resolve(),
       map.hasLayer(roadsLayer) ? loadRoadsInView() : Promise.resolve(),
     ]);
     return features;
@@ -2125,6 +2241,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // switched on rather than loading them for every view.
   map.on("overlayadd", (e) => {
     if (e.layer === roadsLayer) loadRoadsInView().catch((err) => console.error(err));
+    if (e.layer === kerbLayer) loadKerbsInView().catch((err) => console.error(err));
+  });
+
+  // Switching a layer off has to drop its snap targets too, or the ruler keeps
+  // latching onto a line that is no longer on screen.
+  map.on("overlayremove", (e) => {
+    if (e.layer !== kerbLayer) return;
+    for (let i = snapSegs.length - 1; i >= 0; i--) {
+      if (snapSegs[i].kind === "kerb") snapSegs.splice(i, 1);
+    }
   });
 
   // Installable app. Registered only over HTTPS (or localhost) -- browsers
