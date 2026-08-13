@@ -686,8 +686,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
     </div>
     <div style="display:flex; align-items:center; gap:10px;">
       <span id="status">connecting&hellip;</span>
-      <label id="snapWrap"><input type="checkbox" id="snapChk" checked /> <span data-i18n="snapStart">Snap start point</span></label>
-      <label id="perpWrap"><input type="checkbox" id="perpChk" /> <span data-i18n="perp">&perp; to edge</span></label>
+      <label id="snapWrap"><input type="checkbox" id="snapChk" checked /> <span data-i18n="snapStart">Snap to lines</span></label>
+      <label id="perpWrap"><input type="checkbox" id="perpChk" checked /> <span data-i18n="perp">&perp; to edge</span></label>
       <button id="exactBtn" type="button" data-i18n="exactBtn">Exact</button>
       <button id="measureBtn" type="button" data-i18n="measure">Measure</button>
       <button id="autoBtn" type="button" data-i18n="autoSetback">Auto setback</button>
@@ -738,7 +738,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
       selBlk: "اختر القطعة",
       selPar: "اختر القسيمة",
       noMatches: "لا توجد نتائج",
-      snapStart: "تثبيت نقطة البداية",
+      // No longer only the start point -- both ends latch onto boundaries and
+      // road edges now.
+      snapStart: "التثبيت على الخطوط",
       perp: "عمودي على الحد",
       measure: "قياس",
       autoSetback: "الارتداد",
@@ -802,7 +804,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       selBlk: "Select block",
       selPar: "Select parcel",
       noMatches: "No matches",
-      snapStart: "Snap start point",
+      snapStart: "Snap to lines",
       perp: "⊥ to edge",
       measure: "Measure",
       autoSetback: "Auto setback",
@@ -1448,10 +1450,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   // Clicking empty map deselects. A click on a plot fires on the layer first
   // and then reaches the map, so the layer handler sets a flag to opt out.
+  //
+  // Neither drawing mode may deselect: placing a setback by hand is a click on
+  // the map, and it was throwing away the selected plot -- taking the info
+  // panel, and with it the Print button, off the screen mid-measurement.
   let plotJustClicked = false;
   map.on("click", () => {
     if (plotJustClicked) { plotJustClicked = false; return; }
-    if (!measuring) clearSelection();
+    if (!measuring && !setbackMode) clearSelection();
   });
 
   document.getElementById("clearBtn").addEventListener("click", clearAllMeasurements);
@@ -1585,11 +1591,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
       updateMag(ll, kind);
       return;
     }
-    // Free end: no snapping, so it goes exactly where you point it -- unless
-    // perpendicular lock is on, which constrains it to the edge's normal.
-    const end = applyPerp(raw);
-    setSnapMarker(null, null);
-    updateMag(end, null);
+    // Both ends latch on now. Measuring a setback by hand means landing exactly
+    // on the kerb or on the neighbouring boundary, not near it, and eyeballing
+    // that was costing metres. Snap first, then apply the perpendicular lock,
+    // so the line stays square to the boundary and still reports the
+    // perpendicular distance to whatever it caught.
+    const { ll: snapped, kind } = snapLatLng(raw);
+    const end = applyPerp(snapped);
+    setSnapMarker(kind ? end : null, kind);
+    updateMag(end, kind);
     if (downPt && Math.hypot(e.clientX - downPt.x, e.clientY - downPt.y) > 4) dragging = true;
     e.preventDefault();
     e.stopPropagation();
