@@ -588,6 +588,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
     #printArea .meta td { padding: 4px 14px 4px 0; }
     #printArea .mono { font-family: ui-monospace, Consolas, monospace; font-size: 8.5pt; }
     #printArea .diagram { margin: 16px 0; text-align: center; }
+    /* The printed map: tiles positioned absolutely, overlay on top. */
+    #printArea .plan {
+      position: relative; width: 620px; height: 430px; overflow: hidden;
+      margin: 12px auto; border: 1px solid #888;
+      /* Without this Chrome drops the tinted plot fill from the printout. */
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    #printArea .plan img { position: absolute; width: 256px; height: 256px; }
+    #printArea .plan svg { position: absolute; left: 0; top: 0; width: 620px; height: 430px; }
+    #printArea .plan .attrib {
+      position: absolute; right: 3px; bottom: 2px; font-size: 7pt; color: #333;
+      background: rgba(255,255,255,0.75); padding: 0 3px;
+    }
     #printArea .sides { width: 62%; margin-top: 4px; } /* three columns now */
     #printArea .note { margin: 6px 0 0; font-size: 8.5pt; color: #777; }
     #printArea .sides th, #printArea .sides td {
@@ -682,6 +695,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       setbackHint: "انقر على حد القسيمة لقياس الارتداد",
       setbackNoEdge: "انقر على حد قسيمة",
       setbackCol: "الارتداد",
+      north: "ش",
       setbackUnavailable: "الارتداد غير متاح: قرّب الخريطة وفعّل طبقة حافة الشارع قبل الطباعة.",
       // Arabic has a dual, so "2 أضلاع" is wrong -- it takes ضلعين. A plot
       // never fronts more than a handful of streets, so the plural form only
@@ -744,6 +758,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       setbackHint: "Click a plot boundary to measure the setback",
       setbackNoEdge: "Click on a plot boundary",
       setbackCol: "Setback",
+      north: "N",
       setbackUnavailable: "Setbacks unavailable: zoom in and switch on the road-edge layer before printing.",
       autoDone: (n) => `${n} side${n === 1 ? "" : "s"} measured`,
       clear: "Clear",
@@ -781,7 +796,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
     },
   };
 
-  let lang = localStorage.getItem("kwplots-lang") || "ar";
+  // Reading localStorage throws outright in some contexts (storage disabled,
+  // certain private-browsing modes). Unguarded, that one line took down the
+  // whole app before the map was even created, so a remembered language
+  // preference is treated as a nicety that is allowed to fail.
+  const storage = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* not fatal */ } },
+  };
+  let lang = storage.get("kwplots-lang") || "ar";
   const t = (key, ...args) => {
     const v = I18N[lang][key];
     return typeof v === "function" ? v(...args) : v;
@@ -804,7 +827,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   document.getElementById("langBtn").addEventListener("click", () => {
     lang = lang === "ar" ? "en" : "ar";
-    localStorage.setItem("kwplots-lang", lang);
+    storage.set("kwplots-lang", lang);
     applyLang();
     setTimeout(() => map.invalidateSize(), 50);
   });
@@ -1801,6 +1824,63 @@ svg.leaflet-zoom-animated{will-change:transform;}
     </svg>`;
   }
 
+  // ---- Printed map -------------------------------------------------------
+  // The plain outline was hard to place on the ground, so the sheet now prints
+  // the plot over the same basemap the user is looking at, at a zoom chosen to
+  // fit, with the plot centred. Built from tile <img>s positioned by Leaflet's
+  // own projection, so the overlay lines up exactly with the imagery.
+  const PRINT_W = 620, PRINT_H = 430, TILE = 256;
+
+  function printMapPlan(geomWgs) {
+    const lonlat = geomWgs?.coordinates?.[0];
+    if (!lonlat) return null;
+    const bounds = L.latLngBounds(lonlat.map(([lon, lat]) => L.latLng(lat, lon)));
+    const centre = bounds.getCenter();
+
+    // Largest zoom where the plot plus a margin still fits the printed box.
+    let zoom = 19;
+    for (; zoom > 13; zoom--) {
+      const a = map.project(bounds.getNorthWest(), zoom);
+      const b = map.project(bounds.getSouthEast(), zoom);
+      if (Math.abs(b.x - a.x) <= PRINT_W * 0.62 && Math.abs(b.y - a.y) <= PRINT_H * 0.62) break;
+    }
+
+    const mid = map.project(centre, zoom);
+    const originX = mid.x - PRINT_W / 2;
+    const originY = mid.y - PRINT_H / 2;
+    const toPx = (lon, lat) => {
+      const p = map.project(L.latLng(lat, lon), zoom);
+      return [p.x - originX, p.y - originY];
+    };
+
+    const sat = map.hasLayer(satellite);
+    const urls = [];
+    const x0 = Math.floor(originX / TILE), x1 = Math.floor((originX + PRINT_W) / TILE);
+    const y0 = Math.floor(originY / TILE), y1 = Math.floor((originY + PRINT_H) / TILE);
+    const max = Math.pow(2, zoom);
+    for (let tx = x0; tx <= x1; tx++) {
+      for (let ty = y0; ty <= y1; ty++) {
+        if (ty < 0 || ty >= max) continue;
+        const wx = ((tx % max) + max) % max; // wrap at the date line
+        const url = sat
+          ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${zoom}/${ty}/${wx}`
+          : `https://${"abc"[(wx + ty) % 3]}.tile.openstreetmap.org/${zoom}/${wx}/${ty}.png`;
+        urls.push({ url, left: tx * TILE - originX, top: ty * TILE - originY });
+      }
+    }
+    return { zoom, toPx, urls, sat };
+  }
+
+  // Metres per printed pixel, for the scale bar.
+  function printScaleBar(zoom, lat) {
+    const mPerPx = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom);
+    // A round number of metres that lands near 110 px.
+    const nice = [5, 10, 20, 25, 50, 100, 200];
+    let metres = nice[0];
+    for (const n of nice) if (n / mPerPx <= 130) metres = n;
+    return { metres, px: metres / mPerPx };
+  }
+
   let selectedProps = null;
   let selectedLayer = null;
 
@@ -1867,10 +1947,118 @@ svg.leaflet-zoom-animated{will-change:transform;}
     target.innerHTML = m == null ? "&mdash;" : `${Number(m).toFixed(1)} m`;
   }
 
-  function printPlot(props) {
-    const nbh = lang === "ar"
-      ? props.neighborhood_ar || props.neighborhood_en
-      : props.neighborhood_en || props.neighborhood_ar;
+  // Whatever is currently drawn on the map -- automatic setbacks and any the
+  // user placed by hand -- so the sheet shows the measurements they actually
+  // took, not just the ones the algorithm would pick.
+  function drawnMeasurements() {
+    const out = [];
+    measurements.eachLayer((pair) => {
+      let line = null, text = null;
+      pair.eachLayer((l) => {
+        if (l.getLatLngs) line = l;
+        else if (l.getContent) text = l.getContent();
+      });
+      if (!line) return;
+      const ll = line.getLatLngs();
+      if (ll.length < 2) return;
+      out.push({
+        from: ll[0],
+        to: ll[ll.length - 1],
+        text: String(text ?? "").replace(/&mdash;/g, "—").replace(/<[^>]*>/g, ""),
+      });
+    });
+    return out;
+  }
+
+  // The plot drawn over the basemap, in printed-pixel space.
+  function buildPrintMap(props, setbacks) {
+    const plan = printMapPlan(props.geom);
+    if (!plan) return null;
+    const { toPx, urls, zoom } = plan;
+
+    const imgs = urls
+      .map((tl) => `<img src="${tl.url}" style="left:${tl.left}px; top:${tl.top}px" crossorigin="anonymous" />`)
+      .join("");
+
+    const simple = simplifyRing(props.geom.coordinates[0]);
+    const px = simple.map(([lon, lat]) => toPx(lon, lat));
+    const pts = px.map((p) => `${p[0]},${p[1]}`).join(" ");
+    let cx = 0, cy = 0;
+    for (let i = 0; i < px.length - 1; i++) { cx += px[i][0]; cy += px[i][1]; }
+    cx /= px.length - 1; cy /= px.length - 1;
+
+    // Side number and length, pushed outward from the centre so they sit clear
+    // of the boundary rather than on top of it.
+    const sideLabels = (props.sides ?? [])
+      .map((s, i) => {
+        if (!px[i] || !px[i + 1]) return "";
+        const mx = (px[i][0] + px[i + 1][0]) / 2;
+        const my = (px[i][1] + px[i + 1][1]) / 2;
+        const dx = mx - cx, dy = my - cy;
+        const len = Math.hypot(dx, dy) || 1;
+        const lx = mx + (dx / len) * 22, ly = my + (dy / len) * 22;
+        const sb = setbacks?.get(s.n);
+        return `<g text-anchor="middle">
+          <text x="${lx}" y="${ly}" font-size="13" font-weight="700" fill="#17211b" stroke="#fff" stroke-width="3" paint-order="stroke">${s.n}</text>
+          <text x="${lx}" y="${ly + 13}" font-size="11" fill="#1d2b22" stroke="#fff" stroke-width="3" paint-order="stroke">${fmtSide(s.length).replace("&mdash;", "—")}</text>
+          ${sb == null ? "" : `<text x="${lx}" y="${ly + 26}" font-size="10.5" font-weight="700" fill="#c0392b" stroke="#fff" stroke-width="3" paint-order="stroke">${sb.toFixed(2)} m</text>`}
+        </g>`;
+      })
+      .join("");
+
+    // The measurements as drawn, in the same red as on screen.
+    const drawn = drawnMeasurements()
+      .map((m) => {
+        const [ax, ay] = toPx(m.from.lng, m.from.lat);
+        const [bx, by] = toPx(m.to.lng, m.to.lat);
+        return `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}" stroke="#c0392b" stroke-width="2.5" />
+          <circle cx="${ax}" cy="${ay}" r="2.8" fill="#c0392b" />
+          <circle cx="${bx}" cy="${by}" r="2.8" fill="#c0392b" />
+          <text x="${(ax + bx) / 2}" y="${(ay + by) / 2 - 6}" font-size="11" font-weight="700" text-anchor="middle"
+                fill="#c0392b" stroke="#fff" stroke-width="3" paint-order="stroke">${m.text}</text>`;
+      })
+      .join("");
+
+    const bar = printScaleBar(zoom, L.latLngBounds(props.geom.coordinates[0].map(([lo, la]) => L.latLng(la, lo))).getCenter().lat);
+    const by0 = PRINT_H - 16;
+
+    return `<div class="plan">${imgs}
+      <svg viewBox="0 0 ${PRINT_W} ${PRINT_H}" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="${pts}" fill="rgba(60,110,71,0.18)" stroke="#2f5d3a" stroke-width="2.5" />
+        ${sideLabels}
+        ${drawn}
+        <g transform="translate(${PRINT_W - 34},26)">
+          <path d="M0,-16 L6,8 L0,3 L-6,8 Z" fill="#17211b" stroke="#fff" stroke-width="1.5" paint-order="stroke" />
+          <text y="22" font-size="11" font-weight="700" text-anchor="middle" fill="#17211b" stroke="#fff" stroke-width="3" paint-order="stroke">${t("north")}</text>
+        </g>
+        <g transform="translate(14,${by0})">
+          <line x1="0" y1="0" x2="${bar.px}" y2="0" stroke="#17211b" stroke-width="3" />
+          <line x1="0" y1="-5" x2="0" y2="5" stroke="#17211b" stroke-width="3" />
+          <line x1="${bar.px}" y1="-5" x2="${bar.px}" y2="5" stroke="#17211b" stroke-width="3" />
+          <text x="${bar.px / 2}" y="-9" font-size="11" font-weight="700" text-anchor="middle" fill="#17211b" stroke="#fff" stroke-width="3" paint-order="stroke">${bar.metres} m</text>
+        </g>
+      </svg>
+      <span class="attrib">${plan.sat ? "Imagery © Esri" : "© OpenStreetMap"}</span>
+    </div>`;
+  }
+
+  // Chrome will happily print before tiles arrive, so wait for them (briefly --
+  // a slow tile server must not block the dialog indefinitely).
+  function preloadTiles(urls, timeoutMs = 7000) {
+    return Promise.race([
+      Promise.all(urls.map((u) => new Promise((res) => {
+        const im = new Image();
+        im.onload = im.onerror = res;
+        im.src = u;
+      }))),
+      new Promise((res) => setTimeout(res, timeoutMs)),
+    ]);
+  }
+
+  async function printPlot(props) {
+    const pick = (ar, en) => (lang === "ar" ? ar || en : en || ar);
+    const nbh = pick(props.neighborhood_ar, props.neighborhood_en);
+    const street = pick(props.street_ar, props.street_en);
     // Setbacks are computed here rather than read off whatever happens to be
     // drawn, so a printout is complete even if nothing was measured on screen.
     // They need the kerb layer, so zoomed out they are simply absent.
@@ -1887,19 +2075,24 @@ svg.leaflet-zoom-animated{will-change:transform;}
         return `<tr><td>${s.n}</td><td>${fmtSide(s.length)}</td><td>${sb == null ? "—" : sb.toFixed(2) + " m"}</td></tr>`;
       })
       .join("");
+
+    const plan = printMapPlan(props.geom);
+    const planHtml = plan ? buildPrintMap(props, setbacks) : `<div class="diagram">${buildPlotSvg(props.geom, props.sides, setbacks)}</div>`;
+
     document.getElementById("printArea").innerHTML = `
       <h1>${t("parcel")} ${props.parcel_no ?? ""} &mdash; ${t("block")} ${props.block_no ?? ""}</h1>
-      <p class="sub">${nbh ?? ""}</p>
+      <p class="sub">${[nbh, street].filter(Boolean).join(" &mdash; ")}</p>
       <table class="meta">
         <tr><th>${t("parcel")}</th><td>${props.parcel_no ?? "—"}</td><th>${t("block")}</th><td>${props.block_no ?? "—"}</td></tr>
-        <tr><th>${t("paci")}</th><td>${props.paci_no?.trim() || "—"}</td><th>${t("globalId")}</th><td class="mono">${props.global_id ?? "—"}</td></tr>
-        <tr><th>${t("area")}</th><td>${props.measured_area ?? "—"} m²</td><th>${t("perimeter")}</th><td>${props.shape_length != null ? Number(props.shape_length).toFixed(2) : "—"} m</td></tr>
+        <tr><th>${t("neighborhood")}</th><td>${nbh ?? "—"}</td><th>${t("street")}</th><td>${street ?? "—"}</td></tr>
+        <tr><th>${t("house")}</th><td>${props.house_no ?? "—"}</td><th>${t("area")}</th><td>${props.measured_area ?? "—"} m²</td></tr>
       </table>
-      <div class="diagram">${buildPlotSvg(props.geom, props.sides, setbacks)}</div>
+      ${planHtml}
       <table class="sides"><thead><tr><th>${t("side")}</th><th>${t("length")}</th><th>${t("setbackCol")}</th></tr></thead><tbody>${rows}</tbody></table>
       ${ctx ? "" : `<p class="note">${t("setbackUnavailable")}</p>`}
       <p class="foot">${t("source")}. ${t("printed")}: ${new Date().toLocaleString(lang === "ar" ? "ar-KW" : "en-GB")}.</p>
     `;
+    if (plan) await preloadTiles(plan.urls.map((u) => u.url));
     window.print();
   }
 
