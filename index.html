@@ -405,7 +405,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
     padding: 6px 9px; cursor: pointer;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .combo-list li.active { background: var(--accent); color: #fff; }
+  /* Hover and keyboard selection look the same on purpose -- there is only
+     ever one candidate, whichever way you arrived at it. */
+  .combo-list li.active,
+  .combo-list li[data-value]:hover { background: var(--accent); color: #fff; }
   .combo-list li.none { color: #8a958d; cursor: default; }
   #showAreaBtn {
     font: inherit;
@@ -2673,6 +2676,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
         li.textContent = o.textContent;
         li.dataset.value = o.value;
         if (i === active) li.className = "active";
+        // Pointing at a row makes it the candidate, so Enter takes what is
+        // under the cursor rather than whatever the arrow keys last left.
+        li.addEventListener("mouseenter", () => {
+          active = i;
+          for (const el of list.children) el.classList.remove("active");
+          li.classList.add("active");
+        });
         // mousedown, not click: blur would close the list first.
         li.addEventListener("mousedown", (e) => { e.preventDefault(); choose(o.value); });
         list.appendChild(li);
