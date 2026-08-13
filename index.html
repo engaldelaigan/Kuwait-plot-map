@@ -386,26 +386,27 @@ svg.leaflet-zoom-animated{will-change:transform;}
   [dir="rtl"] #addrForm .combo .caret { right: auto; left: 7px; }
   #addrForm .combo.open .caret { color: var(--accent); }
   #addrForm .combo.disabled .caret { color: #b8c2bb; }
-  /* Four dropdowns share the header row, so each is only ~80px wide -- too
-     narrow for a name like "مبارك الكبير". The list is therefore allowed to
-     grow past its input rather than ellipsising every longer entry. */
-  #addrForm .combo ul {
-    position: absolute; top: calc(100% + 2px); left: 0; right: auto; z-index: 1200;
-    min-width: 100%; width: max-content; max-width: min(320px, 70vw);
+  /* The list lives on <body>, not inside the header, and is positioned in
+     viewport coordinates. Nested in the header it was at the mercy of every
+     ancestor's clipping and stacking; out here nothing can cut it off. Four
+     dropdowns share that row so each input is only ~80px, far too narrow for
+     a name like "مبارك العبدالله الجابر الصباح", hence sizing to content. */
+  .combo-list {
+    position: fixed; z-index: 3000;
     margin: 0; padding: 4px 0; list-style: none;
-    max-height: 250px; overflow-y: auto;
+    width: max-content; max-width: min(340px, 80vw);
+    overflow-y: auto;
     background: #fff; border: 1px solid var(--line); border-radius: 6px;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); font-size: 12px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+    font-size: 12px; color: var(--ink);
   }
-  /* Right-anchored in Arabic, so a widened list grows inward, not off-screen. */
-  [dir="rtl"] #addrForm .combo ul { left: auto; right: 0; }
-  #addrForm .combo ul[hidden] { display: none; }
-  #addrForm .combo li {
+  .combo-list[hidden] { display: none; }
+  .combo-list li {
     padding: 6px 9px; cursor: pointer;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  #addrForm .combo li.active { background: var(--accent); color: #fff; }
-  #addrForm .combo li.none { color: #8a958d; cursor: default; }
+  .combo-list li.active { background: var(--accent); color: #fff; }
+  .combo-list li.none { color: #8a958d; cursor: default; }
   #showAreaBtn {
     font: inherit;
     font-size: 12px;
@@ -2632,8 +2633,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
     caret.className = "caret";
     caret.textContent = "▼";
     const list = document.createElement("ul");
+    list.className = "combo-list";
     list.hidden = true;
-    wrap.append(input, caret, list);
+    wrap.append(input, caret);
+    document.body.appendChild(list);
 
     let active = -1;
 
@@ -2681,12 +2684,39 @@ svg.leaflet-zoom-animated{will-change:transform;}
     }
 
     const close = () => { list.hidden = true; active = -1; wrap.classList.remove("open"); };
+
+    // The list is no longer a child of the input, so it has to be told where to
+    // go, in viewport coordinates. Clamped horizontally so a list wider than
+    // its 80px input cannot run off the edge, and flipped above the field when
+    // there is more room up there than down.
+    function place() {
+      const r = input.getBoundingClientRect();
+      list.style.maxHeight = "none";
+      const lw = list.offsetWidth;
+      const below = window.innerHeight - r.bottom - 10;
+      const above = r.top - 10;
+      const flip = below < 140 && above > below;
+      const maxH = Math.max(120, Math.min(280, flip ? above : below));
+      list.style.maxHeight = maxH + "px";
+      const lh = Math.min(list.scrollHeight + 2, maxH);
+
+      const rtl = document.documentElement.dir === "rtl";
+      let left = rtl ? r.right - lw : r.left;
+      left = Math.max(6, Math.min(left, window.innerWidth - lw - 6));
+      list.style.left = left + "px";
+      list.style.top = (flip ? r.top - lh - 4 : r.bottom + 3) + "px";
+      list.style.minWidth = r.width + "px";
+    }
+
     function open(filter = "") {
       active = -1;
       render(filter);
-      list.hidden = false;
+      list.hidden = false; // must be laid out before it can be measured
       wrap.classList.add("open");
+      place();
     }
+    // Reflowing a detached list on every resize is not worth it; closing is.
+    window.addEventListener("resize", () => { if (!list.hidden) close(); });
 
     input.addEventListener("focus", () => {
       if (sel.disabled) return;
