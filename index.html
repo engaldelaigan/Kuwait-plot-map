@@ -358,6 +358,37 @@ svg.leaflet-zoom-animated{will-change:transform;}
     min-width: 0;
   }
   #addrForm select:disabled { color: #9aa79f; background: #f2f0ea; }
+  /* Typing filters the list. The <select> stays in the DOM holding the value,
+     so everything reading .value or listening for `change` is untouched --
+     only its presentation is replaced. */
+  #addrForm .combo { position: relative; flex: 1; min-width: 0; display: flex; }
+  #addrForm .combo select { display: none; }
+  #addrForm .combo input {
+    font: inherit;
+    font-size: 12px;
+    padding: 5px 6px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--ink);
+    width: 100%;
+    min-width: 0;
+  }
+  #addrForm .combo input:disabled { color: #9aa79f; background: #f2f0ea; }
+  #addrForm .combo ul {
+    position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 1200;
+    margin: 0; padding: 4px 0; list-style: none;
+    max-height: 250px; overflow-y: auto;
+    background: #fff; border: 1px solid var(--line); border-radius: 6px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); font-size: 12px;
+  }
+  #addrForm .combo ul[hidden] { display: none; }
+  #addrForm .combo li {
+    padding: 6px 9px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #addrForm .combo li.active { background: var(--accent); color: #fff; }
+  #addrForm .combo li.none { color: #8a958d; cursor: default; }
   #showAreaBtn {
     font: inherit;
     font-size: 12px;
@@ -526,7 +557,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       padding: 6px 9px;
       font-size: 11px;
     }
-    #searchInput, #addrForm select { padding: 6px 8px; font-size: 12px; }
+    #searchInput, #addrForm select, #addrForm .combo input { padding: 6px 8px; font-size: 12px; }
     #addrForm { flex: 1 1 100%; }
     #snapWrap, #perpWrap { font-size: 11px; }
 
@@ -685,6 +716,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       selNbh: "اختر المنطقة",
       selBlk: "اختر القطعة",
       selPar: "اختر القسيمة",
+      noMatches: "لا توجد نتائج",
       snapStart: "تثبيت نقطة البداية",
       perp: "عمودي على الحد",
       measure: "قياس",
@@ -748,6 +780,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       selNbh: "Select neighbourhood",
       selBlk: "Select block",
       selPar: "Select parcel",
+      noMatches: "No matches",
       snapStart: "Snap start point",
       perp: "⊥ to edge",
       measure: "Measure",
@@ -2541,6 +2574,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
     for (let i = 0; i < nbhRows.length; i++) {
       if (selNbh.options[i + 1]) selNbh.options[i + 1].textContent = nbhLabel(nbhRows[i]);
     }
+    // The comboboxes show the option text, so they have to be repainted after
+    // a language switch or they keep the previous language's labels.
+    for (const s of [selGov, selNbh, selBlk, selPar]) s._combo?.sync();
   }
 
   function fillSelect(sel, placeholder, items, valueOf, labelOf) {
@@ -2556,7 +2592,119 @@ svg.leaflet-zoom-animated{will-change:transform;}
       sel.appendChild(o);
     }
     sel.disabled = items.length === 0;
+    sel._combo?.sync();
   }
+
+  // ---- Filterable dropdowns ----------------------------------------------
+  // A native <select> cannot be typed into, and some neighbourhoods carry
+  // hundreds of blocks and parcels, so picking one meant scrolling a huge
+  // list. Each select gets a text box in front of it that narrows the list to
+  // what actually matches as you type. The <select> itself is kept (hidden)
+  // and still holds the value, so nothing reading `.value` or listening for
+  // `change` had to change.
+  function makeCombo(sel) {
+    const wrap = document.createElement("div");
+    wrap.className = "combo";
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.appendChild(sel);
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.autocomplete = "off";
+    const list = document.createElement("ul");
+    list.hidden = true;
+    wrap.append(input, list);
+
+    let active = -1;
+
+    // Arabic gets typed with and without diacritics, and with any of several
+    // alef forms, so a plain substring test misses matches a person would
+    // consider obvious.
+    const norm = (s) => (s || "")
+      .toLowerCase()
+      .replace(/[ً-ٰٟ]/g, "")
+      .replace(/[إأآا]/g, "ا")
+      .replace(/ى/g, "ي")
+      .replace(/ة/g, "ه")
+      .trim();
+
+    function render(filter) {
+      const q = norm(filter);
+      const matches = [...sel.options]
+        .filter((o) => o.value !== "")
+        .filter((o) => !q || norm(o.textContent).includes(q));
+      list.innerHTML = "";
+      if (!matches.length) {
+        const li = document.createElement("li");
+        li.className = "none";
+        li.textContent = t("noMatches");
+        list.appendChild(li);
+        return;
+      }
+      if (active >= matches.length) active = matches.length - 1;
+      matches.forEach((o, i) => {
+        const li = document.createElement("li");
+        li.textContent = o.textContent;
+        li.dataset.value = o.value;
+        if (i === active) li.className = "active";
+        // mousedown, not click: blur would close the list first.
+        li.addEventListener("mousedown", (e) => { e.preventDefault(); choose(o.value); });
+        list.appendChild(li);
+      });
+    }
+
+    function choose(value) {
+      sel.value = value;
+      sync();
+      close();
+      sel.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    const close = () => { list.hidden = true; active = -1; };
+    function open(filter = "") { active = -1; render(filter); list.hidden = false; }
+
+    input.addEventListener("focus", () => {
+      if (sel.disabled) return;
+      input.select(); // typing replaces the current choice rather than appending
+      open("");
+    });
+    input.addEventListener("input", () => { active = 0; render(input.value); list.hidden = false; });
+    input.addEventListener("blur", () => setTimeout(() => { close(); sync(); }, 120));
+    input.addEventListener("keydown", (e) => {
+      const items = [...list.querySelectorAll("li[data-value]")];
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        if (list.hidden) { open(input.value); return; }
+        if (!items.length) return;
+        active += e.key === "ArrowDown" ? 1 : -1;
+        if (active < 0) active = items.length - 1;
+        if (active >= items.length) active = 0;
+        render(input.value);
+        list.querySelector("li.active")?.scrollIntoView({ block: "nearest" });
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        // One remaining match is unambiguous, so Enter takes it even if the
+        // user never arrowed onto it.
+        const pick = items[active] ?? (items.length === 1 ? items[0] : null);
+        if (pick) choose(pick.dataset.value);
+      } else if (e.key === "Escape") {
+        close();
+        sync();
+      }
+    });
+
+    function sync() {
+      input.disabled = sel.disabled;
+      input.placeholder = sel.options[0]?.textContent ?? "";
+      const o = sel.selectedOptions[0];
+      input.value = o && o.value !== "" ? o.textContent : "";
+    }
+
+    sel._combo = { sync };
+    sync();
+  }
+
+  for (const s of [selGov, selNbh, selBlk, selPar]) makeCombo(s);
 
   const empty = (sel, key) => fillSelect(sel, t(key), [], (x) => x, (x) => x);
 
