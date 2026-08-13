@@ -366,22 +366,39 @@ svg.leaflet-zoom-animated{will-change:transform;}
   #addrForm .combo input {
     font: inherit;
     font-size: 12px;
-    padding: 5px 6px;
+    padding: 5px 20px 5px 6px;
     border: 1px solid var(--line);
     border-radius: 6px;
     background: #fff;
     color: var(--ink);
     width: 100%;
     min-width: 0;
+    /* Reads as a picker, not a search box: clicking anywhere opens the list. */
+    cursor: pointer;
   }
-  #addrForm .combo input:disabled { color: #9aa79f; background: #f2f0ea; }
+  [dir="rtl"] #addrForm .combo input { padding: 5px 6px 5px 20px; }
+  #addrForm .combo input:disabled { color: #9aa79f; background: #f2f0ea; cursor: default; }
+  /* The caret is what tells you this is a list rather than a text field. */
+  #addrForm .combo .caret {
+    position: absolute; top: 50%; right: 7px; transform: translateY(-50%);
+    font-size: 9px; color: #6d7a72; pointer-events: none;
+  }
+  [dir="rtl"] #addrForm .combo .caret { right: auto; left: 7px; }
+  #addrForm .combo.open .caret { color: var(--accent); }
+  #addrForm .combo.disabled .caret { color: #b8c2bb; }
+  /* Four dropdowns share the header row, so each is only ~80px wide -- too
+     narrow for a name like "مبارك الكبير". The list is therefore allowed to
+     grow past its input rather than ellipsising every longer entry. */
   #addrForm .combo ul {
-    position: absolute; top: calc(100% + 2px); left: 0; right: 0; z-index: 1200;
+    position: absolute; top: calc(100% + 2px); left: 0; right: auto; z-index: 1200;
+    min-width: 100%; width: max-content; max-width: min(320px, 70vw);
     margin: 0; padding: 4px 0; list-style: none;
     max-height: 250px; overflow-y: auto;
     background: #fff; border: 1px solid var(--line); border-radius: 6px;
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); font-size: 12px;
   }
+  /* Right-anchored in Arabic, so a widened list grows inward, not off-screen. */
+  [dir="rtl"] #addrForm .combo ul { left: auto; right: 0; }
   #addrForm .combo ul[hidden] { display: none; }
   #addrForm .combo li {
     padding: 6px 9px; cursor: pointer;
@@ -2611,9 +2628,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const input = document.createElement("input");
     input.type = "text";
     input.autocomplete = "off";
+    const caret = document.createElement("span");
+    caret.className = "caret";
+    caret.textContent = "▼";
     const list = document.createElement("ul");
     list.hidden = true;
-    wrap.append(input, list);
+    wrap.append(input, caret, list);
 
     let active = -1;
 
@@ -2660,13 +2680,22 @@ svg.leaflet-zoom-animated{will-change:transform;}
       sel.dispatchEvent(new Event("change", { bubbles: true }));
     }
 
-    const close = () => { list.hidden = true; active = -1; };
-    function open(filter = "") { active = -1; render(filter); list.hidden = false; }
+    const close = () => { list.hidden = true; active = -1; wrap.classList.remove("open"); };
+    function open(filter = "") {
+      active = -1;
+      render(filter);
+      list.hidden = false;
+      wrap.classList.add("open");
+    }
 
     input.addEventListener("focus", () => {
       if (sel.disabled) return;
       input.select(); // typing replaces the current choice rather than appending
-      open("");
+      open(""); // the whole list first -- this is a picker, filtering is optional
+    });
+    // Reopens after Esc without needing to leave and re-enter the field.
+    input.addEventListener("click", () => {
+      if (!sel.disabled && list.hidden) open("");
     });
     input.addEventListener("input", () => { active = 0; render(input.value); list.hidden = false; });
     input.addEventListener("blur", () => setTimeout(() => { close(); sync(); }, 120));
@@ -2695,6 +2724,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
     function sync() {
       input.disabled = sel.disabled;
+      wrap.classList.toggle("disabled", sel.disabled);
       input.placeholder = sel.options[0]?.textContent ?? "";
       const o = sel.selectedOptions[0];
       input.value = o && o.value !== "" ? o.textContent : "";
