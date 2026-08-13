@@ -2251,12 +2251,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }
 
   // The kerb: paved-road polygons from the municipality's Road Edge Area layer.
-  // Only subtype 7 (Road) is treated as a snap target -- that is the
-  // carriageway, and measuring to it reproduces KME Guide to within 10 cm on
-  // both plots we have ground truth for. Pavements, islands and roundabouts are
-  // drawn faintly for context but are not snapped to, since they are not what
-  // "distance to the street" means.
-  const KERB_ROAD_SUBTYPE = 7;
+  // Only the trafficked surfaces count as "the street" -- islands, pavements
+  // and footpaths sit inside or beside the road and are not what a setback is
+  // measured to. They are still drawn faintly for context.
+  //
+  // Restricting this to 7 (Road) was wrong. Nuzha block 1 parcel 51 fronts
+  // طريق المغرب السريع, which is an Expressway (3) 18.86 m away and is exactly
+  // what KME measures there (18.63 m) -- but the nearest Road was 89 m off, so
+  // that frontage got no setback line and nothing to snap to at all.
+  const KERB_SUBTYPES = new Set([3, 7, 8, 9]); // Expressway, Road, Roundabout, Service Road
   // A viewport's worth of road polygons is ~1.5 s on the wire -- they carry far
   // more vertices than the parcels do. Nobody measures a setback zoomed out, so
   // below this the layer is skipped entirely rather than made to slow down
@@ -2284,7 +2287,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const roads = [], other = [];
     for (const row of rows) {
       if (!row.geom) continue;
-      const isRoad = row.subtype === KERB_ROAD_SUBTYPE;
+      const isRoad = KERB_SUBTYPES.has(row.subtype);
       (isRoad ? roads : other).push({
         type: "Feature", geometry: row.geom, properties: { name_ar: row.name_ar },
       });
