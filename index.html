@@ -622,6 +622,29 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }
 
   /* Print sheet: hidden on screen, the only thing shown on paper. */
+  /* Floats over the map rather than joining the header, which is already full.
+     Above Leaflet's panes (400-700) and its controls (800) so it is never
+     buried by a tile layer or the zoom buttons. */
+  #areaBtn {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 900;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--ink);
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+  #areaBtn:disabled { color: #9aa79f; cursor: default; }
+  @media (max-width: 760px) { #areaBtn { font-size: 11px; padding: 6px 11px; } }
+
   #printArea { display: none; }
   @media print {
     #app { display: none !important; }
@@ -698,6 +721,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   <div id="err"></div>
   <div style="position: relative; flex: 1; min-height: 0;">
     <div id="map"></div>
+    <button id="areaBtn" type="button" data-i18n="searchArea">Search this area</button>
     <dl id="panel"></dl>
     <div id="results"></div>
     <div id="mag">
@@ -732,6 +756,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       paciPlaceholder: "اسم الشارع أو المنطقة أو القطعة/القسيمة",
       selGov: "المحافظة",
       showArea: "عرض المنطقة",
+      searchArea: "ابحث في هذه المنطقة",
       areaShown: (n) => `${n} قسيمة`,
       areaPartial: (n) => `${n} قسيمة — العرض غير مكتمل، قرّب أكثر`,
       selNbh: "اختر المنطقة",
@@ -798,6 +823,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       paciPlaceholder: "Street or area name, or block/parcel",
       selGov: "Governorate",
       showArea: "Show area",
+      searchArea: "Search this area",
       areaShown: (n) => `${n} plots`,
       areaPartial: (n) => `${n} plots — view truncated, zoom in`,
       selNbh: "Select neighbourhood",
@@ -2984,6 +3010,38 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // when you move away from the searched area. Debounced, and skipped when
   // zoomed too far out to keep the request meaningful.
   let moveTimer = null;
+  // Pan and zoom to somewhere you already know, then load it -- no address or
+  // parcel number needed. The automatic load on moveend covers the common case,
+  // but it is debounced, it gives up below zoom 15, and it stays quiet after a
+  // search, so there was no way to say "just show me what is here".
+  const areaBtn = document.getElementById("areaBtn");
+  areaBtn.addEventListener("click", async () => {
+    if (map.getZoom() < 15) { statusEl.textContent = t("zoomIn"); return; }
+    // A load is starting, so the debounced handler must not fire a second one
+    // for the same view on top of it.
+    clearTimeout(moveTimer);
+    skipNextMoveLoad = true;
+    areaBtn.disabled = true;
+    statusEl.textContent = t("searching");
+    clearSelection();
+    hideResults();
+    try {
+      const features = await loadViewport();
+      // Say how many turned up. loadPlotsInView clears the status when it is
+      // under the cap, which left the button finishing in silence -- no way to
+      // tell "nothing here" from "did not run".
+      statusEl.textContent =
+        features.length >= PLOT_LIMIT
+          ? t("areaPartial", features.length)
+          : t("areaShown", features.length);
+    } catch (err) {
+      statusEl.textContent = t("loadFailed");
+      console.error(err);
+    } finally {
+      areaBtn.disabled = false;
+    }
+  });
+
   map.on("moveend", () => {
     if (measuring) return;
     // A programmatic jump (search result, "show area") already loaded the new
