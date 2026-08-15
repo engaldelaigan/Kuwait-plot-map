@@ -2857,29 +2857,51 @@ svg.leaflet-zoom-animated{will-change:transform;}
     empty(selPar, "selPar");
   }
 
+  // Every level below the one that changed is emptied BEFORE its fetch, not
+  // after. Clearing only the levels further down left the next list holding the
+  // previous governorate's neighbourhoods for the whole round trip -- openable,
+  // and pickable, so you could select a neighbourhood that no longer belonged
+  // to the governorate on screen.
+  //
+  // The sequence guard covers the other half of it: change governorate twice
+  // quickly and the slower reply would otherwise land last and repopulate the
+  // list from the one already moved on from. It is shared across all levels, so
+  // a change at any level discards every fetch still in flight beneath it.
+  let cascadeSeq = 0;
+
   selGov.addEventListener("change", async () => {
+    const seq = ++cascadeSeq;
+    empty(selNbh, "selNbh");
     empty(selBlk, "selBlk");
     empty(selPar, "selPar");
     syncShowArea();
-    if (!selGov.value) return empty(selNbh, "selNbh");
-    nbhRows = await api(`rpc/list_nbhoods?gov=${q(selGov.value)}`);
+    if (!selGov.value) return;
+    const rows = await api(`rpc/list_nbhoods?gov=${q(selGov.value)}`);
+    if (seq !== cascadeSeq) return;
+    nbhRows = rows;
     fillSelect(selNbh, t("selNbh"), nbhRows, (r) => r.nbhood_no, nbhLabel);
     syncShowArea();
   });
 
   selNbh.addEventListener("change", async () => {
+    const seq = ++cascadeSeq;
+    empty(selBlk, "selBlk");
     empty(selPar, "selPar");
     syncShowArea();
-    if (!selNbh.value) return empty(selBlk, "selBlk");
+    if (!selNbh.value) return;
     const rows = await api(`rpc/list_blocks_v2?nbh=${q(selNbh.value)}`);
+    if (seq !== cascadeSeq) return;
     fillSelect(selBlk, t("selBlk"), rows.map((r) => r.block_no), (x) => x, (x) => x);
   });
 
   selBlk.addEventListener("change", async () => {
-    if (!selBlk.value) return empty(selPar, "selPar");
+    const seq = ++cascadeSeq;
+    empty(selPar, "selPar");
+    if (!selBlk.value) return;
     const rows = await api(
       `rpc/list_parcels_v2?nbh=${q(selNbh.value)}&blk=${q(selBlk.value)}`
     );
+    if (seq !== cascadeSeq) return;
     // Label with house number or the feature's name where there is one.
     // The municipality's address index holds more addresses than the public
     // parcel layers have geometry for, so anything unmappable is marked.
