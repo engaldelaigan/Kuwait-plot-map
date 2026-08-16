@@ -1429,7 +1429,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // Capture phase, like the ruler: the plot polygons cover the view and call
   // stopPropagation on pointerdown, so a bubble-phase listener never fires.
   map.getContainer().addEventListener("pointermove", (e) => {
-    if (!setbackMode || measuring) return;
+    if (!setbackMode || measuring || !onMapSurface(e)) return;
     const ll = map.mouseEventToLatLng(e);
     const kx = mPerDegLon(ll.lat), ky = mPerDegLat(ll.lat);
     const edge = nearestPlotEdge(ll, kx, ky, 14 * metersPerPixel());
@@ -1437,7 +1437,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }, true);
 
   map.getContainer().addEventListener("pointerdown", (e) => {
-    if (!setbackMode || measuring) return;
+    if (!setbackMode || measuring || !onMapSurface(e)) return;
     e.preventDefault();
     e.stopPropagation();
     setbackFromPoint(map.mouseEventToLatLng(e));
@@ -1578,13 +1578,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
   let downAt = 0;
   let downPt = null;
 
+  // Leaflet renders its controls INSIDE the map container, so the capture-phase
+  // listeners below see clicks on the layer switcher too -- and swallowed them,
+  // toggling nothing and starting a measurement underneath the panel instead.
+  // Anything that belongs to a control is not a click on the map.
+  const onMapSurface = (e) =>
+    !(e.target instanceof Element) || !e.target.closest(".leaflet-control-container");
+
   // Both interaction styles are supported off the same events:
   //   drag  -> press, move, release (release commits)
   //   click -> click to anchor, move, click again to commit
   // A release that was neither a real drag nor far from the press point is
   // treated as the first click of a two-click measurement.
   mapEl.addEventListener("pointerdown", (e) => {
-    if (!measuring) return;
+    if (!measuring || !onMapSurface(e)) return;
     e.preventDefault();
     e.stopPropagation();
     downAt = Date.now();
@@ -1608,7 +1615,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }, true);
 
   mapEl.addEventListener("pointermove", (e) => {
-    if (!measuring) return;
+    if (!measuring || !onMapSurface(e)) return;
     const raw = map.mouseEventToLatLng(e);
     if (!measureStart) {
       // Previewing where the anchor would land -- this end snaps.
@@ -1633,7 +1640,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }, true);
 
   mapEl.addEventListener("pointerup", (e) => {
-    if (!measuring) return;
+    if (!measuring || !onMapSurface(e)) return;
     e.stopPropagation();
     const moved = downPt && Math.hypot(e.clientX - downPt.x, e.clientY - downPt.y) > 4;
     downPt = null;
