@@ -658,6 +658,62 @@ svg.leaflet-zoom-animated{will-change:transform;}
   #areaBtn:disabled { color: #9aa79f; cursor: default; }
   @media (max-width: 760px) { #areaBtn { font-size: 11px; padding: 6px 11px; } }
 
+  #drawBtn, #authBtn {
+    font: inherit; font-size: 12px; font-weight: 600; padding: 5px 10px;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--paper); color: var(--ink); cursor: pointer;
+  }
+  #drawBtn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #drawBtn[hidden], #report[hidden], #loginBox[hidden] { display: none; }
+
+  /* Results of a drawn area. Sits opposite the plot panel so both can be open. */
+  #report {
+    position: absolute; top: 52px; left: 10px; z-index: 550;
+    background: rgba(246, 244, 238, 0.97);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px 12px; font-size: 12px;
+    min-width: 210px; max-width: 280px;
+    max-height: calc(100% - 72px); overflow-y: auto;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  }
+  html[dir="rtl"] #report { left: auto; right: 10px; }
+  #report h3 { margin: 0 0 6px; font-size: 12px; }
+  #report table { border-collapse: collapse; width: 100%; }
+  #report td { padding: 2px 0; }
+  #report td.n { text-align: end; font-weight: 700; padding-inline-start: 10px; }
+  #report .total { border-top: 1px solid var(--line); font-weight: 700; }
+  #report .muted { color: #5b6b60; font-weight: 400; font-size: 11px; }
+  #report .close {
+    float: inline-end; border: none; background: none; cursor: pointer;
+    font-size: 15px; line-height: 1; color: #5b6b60; padding: 0 0 0 8px;
+  }
+
+  /* Sign-in. A modal because it is the only thing to do while it is open. */
+  #loginBox {
+    position: absolute; inset: 0; z-index: 1500;
+    background: rgba(23, 33, 27, 0.45);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #loginForm {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px; width: min(300px, 86vw);
+    display: flex; flex-direction: column; gap: 8px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  }
+  #loginForm h2 { margin: 0 0 2px; font-size: 14px; }
+  #loginForm input {
+    font: inherit; font-size: 13px; padding: 7px 8px;
+    border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink);
+  }
+  #loginForm .row { display: flex; gap: 8px; margin-top: 4px; }
+  #loginForm button {
+    font: inherit; font-size: 13px; font-weight: 600; padding: 7px 10px; flex: 1;
+    border: 1px solid var(--line); border-radius: 6px; cursor: pointer;
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
+  #loginForm #loginCancel { background: var(--paper); color: var(--ink); border-color: var(--line); }
+  #loginErr { margin: 0; font-size: 11px; color: #c0392b; min-height: 14px; }
+
   #printArea { display: none; }
   @media print {
     #app { display: none !important; }
@@ -728,6 +784,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       <button id="measureBtn" type="button" data-i18n="measure">Measure</button>
       <button id="autoBtn" type="button" data-i18n="autoSetback">Auto setback</button>
       <button id="clearBtn" type="button" data-i18n="clear">Clear</button>
+      <button id="drawBtn" type="button" hidden data-i18n="drawArea">Analyse area</button>
+      <button id="authBtn" type="button" data-i18n="signIn">Sign in</button>
       <button id="langBtn" type="button">EN</button>
     </div>
   </header>
@@ -735,6 +793,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
   <div style="position: relative; flex: 1; min-height: 0;">
     <div id="map"></div>
     <button id="areaBtn" type="button" data-i18n="searchArea">Search this area</button>
+    <div id="report" hidden></div>
+    <div id="loginBox" hidden>
+      <form id="loginForm" autocomplete="on">
+        <h2 data-i18n="signIn">Sign in</h2>
+        <input id="loginEmail" type="email" required data-i18n-ph="email" autocomplete="username" />
+        <input id="loginPass" type="password" required data-i18n-ph="password" autocomplete="current-password" />
+        <p id="loginErr"></p>
+        <div class="row">
+          <button type="submit" data-i18n="signIn">Sign in</button>
+          <button type="button" id="loginCancel" data-i18n="cancel">Cancel</button>
+        </div>
+      </form>
+    </div>
     <dl id="panel"></dl>
     <div id="results"></div>
     <div id="mag">
@@ -770,6 +841,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
       selGov: "المحافظة",
       showArea: "عرض المنطقة",
       searchArea: "ابحث في هذه المنطقة",
+      drawArea: "تحليل منطقة",
+      signIn: "تسجيل الدخول",
+      signOut: "خروج",
+      email: "البريد الإلكتروني",
+      password: "كلمة المرور",
+      cancel: "إلغاء",
+      drawHint: "انقر لرسم حدود المنطقة، ثم انقر على نقطة البداية أو اضغط Enter",
+      drawNeedMore: "تحتاج ثلاث نقاط على الأقل",
+      analysing: "جارٍ التحليل…",
+      reportTitle: "القسائم داخل المنطقة",
+      reportTotal: "الإجمالي",
+      reportEmpty: "لا توجد قسائم داخل هذه المنطقة",
+      reportTooBig: "المنطقة كبيرة جدًا، ارسم منطقة أصغر",
+      reportCapped: "الحد الأقصى ٢٠٠٠٠ قسيمة — النتيجة غير مكتملة",
       areaShown: (n) => `${n} قسيمة`,
       areaPartial: (n) => `${n} قسيمة — العرض غير مكتمل، قرّب أكثر`,
       selNbh: "اختر المنطقة",
@@ -837,6 +922,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
       selGov: "Governorate",
       showArea: "Show area",
       searchArea: "Search this area",
+      drawArea: "Analyse area",
+      signIn: "Sign in",
+      signOut: "Sign out",
+      email: "Email",
+      password: "Password",
+      cancel: "Cancel",
+      drawHint: "Click to outline the area, then click the first point or press Enter",
+      drawNeedMore: "Needs at least three points",
+      analysing: "analysing…",
+      reportTitle: "Plots inside the area",
+      reportTotal: "Total",
+      reportEmpty: "No plots inside this area",
+      reportTooBig: "Area too large — draw a smaller one",
+      reportCapped: "Capped at 20,000 plots — result is incomplete",
       areaShown: (n) => `${n} plots`,
       areaPartial: (n) => `${n} plots — view truncated, zoom in`,
       selNbh: "Select neighbourhood",
@@ -917,6 +1016,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     }
     // Re-render anything built from JS strings.
     refreshSelectPlaceholders();
+    if (typeof applyAuthUi === "function") applyAuthUi(); // button says Sign in / Sign out
     if (selectedProps) showPanel(selectedProps, selectedLayer);
   }
 
@@ -1456,6 +1556,214 @@ svg.leaflet-zoom-animated{will-change:transform;}
     setbackFromPoint(map.mouseEventToLatLng(e));
   }, true);
 
+  // ---- Draw an area, report what is in it --------------------------------
+  const drawBtn = document.getElementById("drawBtn");
+  const reportEl = document.getElementById("report");
+  const drawLayer = L.layerGroup().addTo(map);
+  let drawMode = false;
+  let drawPts = [];       // [lng, lat]
+  let drawLine = null, drawMarks = null;
+
+  function setDrawMode(on) {
+    drawMode = on;
+    drawBtn.classList.toggle("active", on);
+    map.getContainer().style.cursor = on ? "crosshair" : "";
+    if (on) {
+      if (measuring) measureBtn.click();
+      if (setbackMode) setSetbackMode(false);
+      statusEl.textContent = t("drawHint");
+    } else {
+      resetDrawing();
+      statusEl.textContent = "";
+    }
+  }
+
+  function resetDrawing() {
+    drawPts = [];
+    drawLayer.clearLayers();
+    drawLine = null;
+    drawMarks = null;
+  }
+
+  function redrawOutline(preview) {
+    drawLayer.clearLayers();
+    const pts = drawPts.map(([lng, lat]) => L.latLng(lat, lng));
+    const all = preview ? [...pts, preview] : pts;
+    if (all.length >= 2) {
+      L.polyline(all, { color: "#1565c0", weight: 2.5, dashArray: "6,4" }).addTo(drawLayer);
+    }
+    if (pts.length >= 3) {
+      L.polygon(pts, { color: "#1565c0", weight: 2, fillOpacity: 0.12, interactive: false }).addTo(drawLayer);
+    }
+    pts.forEach((p, i) =>
+      L.circleMarker(p, {
+        radius: i === 0 ? 6 : 4, color: "#fff", weight: 2,
+        fillColor: "#1565c0", fillOpacity: 1, interactive: false,
+      }).addTo(drawLayer)
+    );
+  }
+
+  // Closing the ring by clicking the first point again is the usual gesture,
+  // so the first marker gets a generous hit radius in screen pixels rather
+  // than metres -- it has to be as easy to hit when zoomed out as zoomed in.
+  function nearFirstPoint(latlng) {
+    if (drawPts.length < 3) return false;
+    const a = map.latLngToContainerPoint(L.latLng(drawPts[0][1], drawPts[0][0]));
+    const b = map.latLngToContainerPoint(latlng);
+    return a.distanceTo(b) < 14;
+  }
+
+  async function finishDrawing() {
+    if (drawPts.length < 3) { statusEl.textContent = t("drawNeedMore"); return; }
+    const ring = [...drawPts, drawPts[0]];
+    const shape = { type: "Polygon", coordinates: [ring] };
+    redrawOutline(null);
+    statusEl.textContent = t("analysing");
+    // Leave draw mode BEFORE reporting the outcome: setDrawMode clears the
+    // status line, so doing it afterwards wiped the very message that explained
+    // what happened.
+    drawMode = false;
+    drawBtn.classList.remove("active");
+    map.getContainer().style.cursor = "";
+    try {
+      const rows = await authRpc("area_report", { shape: JSON.stringify(shape) });
+      showReport(rows);
+      statusEl.textContent = "";
+    } catch (err) {
+      // Not the shared status line: the viewport loader writes to it too, and
+      // its "zoom in" message overwrote this within a second of it appearing.
+      // The report panel is where the answer would have gone, so the reason it
+      // did not belongs there as well.
+      showReportMessage(/401|not signed in/.test(err.message) ? t("signIn") : t("loadFailed"));
+      statusEl.textContent = "";
+      console.error(err);
+    }
+  }
+
+  function showReportMessage(msg) {
+    reportEl.innerHTML =
+      `<button class="close" type="button">&times;</button>` +
+      `<h3>${t("reportTitle")}</h3><p class="muted">${msg}</p>`;
+    reportEl.hidden = false;
+    reportEl.querySelector(".close").addEventListener("click", () => {
+      reportEl.hidden = true;
+      drawLayer.clearLayers();
+    });
+  }
+
+  // Shoelace on the drawn ring, in local metres -- only needed to tell "nothing
+  // here" apart from "too big to run", so approximate is fine.
+  function drawnAreaKm2() {
+    if (drawPts.length < 3) return 0;
+    const lat0 = drawPts[0][1];
+    const kx = mPerDegLon(lat0), ky = mPerDegLat(lat0);
+    let s = 0;
+    for (let i = 0; i < drawPts.length; i++) {
+      const [x1, y1] = drawPts[i];
+      const [x2, y2] = drawPts[(i + 1) % drawPts.length];
+      s += x1 * kx * (y2 * ky) - x2 * kx * (y1 * ky);
+    }
+    return Math.abs(s / 2) / 1e6;
+  }
+
+  function showReport(rows) {
+    const pick = (r) => (lang === "ar" ? r.label_ar : r.label_en);
+    const total = rows.reduce((s, r) => s + Number(r.n), 0);
+    if (!rows.length) {
+      // Empty can also mean the shape was rejected for being too large -- the
+      // guard in area_report returns no rows rather than erroring -- so say
+      // which, based on how big what they drew actually was.
+      showReportMessage(drawnAreaKm2() > 300 ? t("reportTooBig") : t("reportEmpty"));
+      return;
+    } else {
+      const body = rows
+        .map((r) => `<tr><td>${pick(r)}</td><td class="n">${Number(r.n).toLocaleString()}</td></tr>`)
+        .join("");
+      // The guard in area_report stops at 20,000 rows; say so rather than
+      // presenting a truncated count as the answer.
+      const capped = total >= 20000 ? `<p class="muted">${t("reportCapped")}</p>` : "";
+      reportEl.innerHTML =
+        `<button class="close" type="button">&times;</button>` +
+        `<h3>${t("reportTitle")}</h3>` +
+        `<table><tbody>${body}` +
+        `<tr class="total"><td>${t("reportTotal")}</td><td class="n">${total.toLocaleString()}</td></tr>` +
+        `</tbody></table>${capped}`;
+    }
+    reportEl.hidden = false;
+    reportEl.querySelector(".close").addEventListener("click", () => {
+      reportEl.hidden = true;
+      drawLayer.clearLayers();
+    });
+  }
+
+  drawBtn.addEventListener("click", () => setDrawMode(!drawMode));
+
+  // Points land on release, not on press, and only if the pointer barely moved.
+  // Panning stays available while drawing -- outlining a neighbourhood needs
+  // more than one screenful -- and a drag no longer drops a stray vertex where
+  // the pan started.
+  let drawDown = null;
+  map.getContainer().addEventListener("pointerdown", (e) => {
+    if (!drawMode || !onMapSurface(e)) return;
+    drawDown = { x: e.clientX, y: e.clientY };
+  }, true);
+
+  map.getContainer().addEventListener("pointerup", (e) => {
+    if (!drawMode || !drawDown || !onMapSurface(e)) return;
+    const moved = Math.hypot(e.clientX - drawDown.x, e.clientY - drawDown.y);
+    drawDown = null;
+    if (moved > 5) return; // that was a pan
+    const ll = map.mouseEventToLatLng(e);
+    if (nearFirstPoint(ll)) { finishDrawing(); return; }
+    drawPts.push([ll.lng, ll.lat]);
+    redrawOutline(null);
+  }, true);
+
+  map.getContainer().addEventListener("pointermove", (e) => {
+    if (!drawMode || !drawPts.length || !onMapSurface(e)) return;
+    redrawOutline(map.mouseEventToLatLng(e));
+  }, true);
+
+  // ---- Auth UI ------------------------------------------------------------
+  const authBtn = document.getElementById("authBtn");
+  const loginBox = document.getElementById("loginBox");
+  const loginErr = document.getElementById("loginErr");
+
+  function applyAuthUi() {
+    const inS = !!session;
+    drawBtn.hidden = !inS;
+    authBtn.textContent = inS ? t("signOut") : t("signIn");
+    authBtn.title = inS ? session.email ?? "" : "";
+    if (!inS) {
+      if (drawMode) setDrawMode(false);
+      reportEl.hidden = true;
+    }
+  }
+
+  authBtn.addEventListener("click", () => {
+    if (session) { saveSession(null); return; }
+    loginErr.textContent = "";
+    loginBox.hidden = false;
+    document.getElementById("loginEmail").focus();
+  });
+
+  document.getElementById("loginCancel").addEventListener("click", () => { loginBox.hidden = true; });
+
+  document.getElementById("loginForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    loginErr.textContent = "";
+    try {
+      await signIn(
+        document.getElementById("loginEmail").value.trim(),
+        document.getElementById("loginPass").value
+      );
+      loginBox.hidden = true;
+      document.getElementById("loginPass").value = "";
+    } catch (err) {
+      loginErr.textContent = err.message;
+    }
+  });
+
   const measureBtn = document.getElementById("measureBtn");
   measureBtn.addEventListener("click", () => {
     // Leaving setback mode on would let its handler swallow the ruler's clicks.
@@ -1482,6 +1790,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (measuring) cancelInProgress();
+    else if (drawMode) setDrawMode(false);
     else if (setbackMode) { setSetbackMode(false); statusEl.textContent = ""; }
     else if (resultsEl.classList.contains("visible")) hideResults();
     else clearSelection();
@@ -2300,6 +2609,82 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return res.json();
   }
 
+  // ---- Sign-in -----------------------------------------------------------
+  // The area report is owner-only. The real gate is the database grant --
+  // area_report is executable by `authenticated` and revoked from `anon` -- so
+  // a signed-out visitor gets 401 from the endpoint whatever the page does.
+  // Hiding the button is a convenience, not the lock: the key is in the page
+  // source and anyone can call the API directly.
+  let session = null; // { access_token, refresh_token, email }
+
+  function loadSession() {
+    try {
+      const raw = storage.get("kwplots-session");
+      session = raw ? JSON.parse(raw) : null;
+    } catch { session = null; }
+    return session;
+  }
+  function saveSession(s) {
+    session = s;
+    if (s) storage.set("kwplots-session", JSON.stringify(s));
+    else storage.set("kwplots-session", "");
+    applyAuthUi();
+  }
+
+  async function signIn(email, password) {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+      method: "POST",
+      headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error_description || body.msg || `HTTP ${res.status}`);
+    saveSession({
+      access_token: body.access_token,
+      refresh_token: body.refresh_token,
+      email: body.user?.email ?? email,
+    });
+  }
+
+  // Access tokens expire after an hour, so a session restored from a previous
+  // visit is usually stale. Refreshing on 401 keeps the user signed in instead
+  // of bouncing them to the login form mid-measurement.
+  async function refreshSession() {
+    if (!session?.refresh_token) return false;
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: session.refresh_token }),
+    });
+    if (!res.ok) { saveSession(null); return false; }
+    const body = await res.json();
+    saveSession({
+      access_token: body.access_token,
+      refresh_token: body.refresh_token,
+      email: body.user?.email ?? session.email,
+    });
+    return true;
+  }
+
+  // POST to an RPC as the signed-in user, retrying once after a refresh.
+  async function authRpc(fn, payload, retried = false) {
+    if (!session) throw new Error("not signed in");
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+      method: "POST",
+      headers: {
+        apikey: ANON_KEY,
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (res.status === 401 && !retried && (await refreshSession())) {
+      return authRpc(fn, payload, true);
+    }
+    if (!res.ok) throw new Error(`${fn} failed: ${res.status}`);
+    return res.json();
+  }
+
   // Loads only what's inside the current view, via the PostGIS bbox function.
   async function loadPlotsInView({ highlightGlobalId = null } = {}) {
     const b = map.getBounds();
@@ -3022,7 +3407,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return features;
   }
 
+  // Restore a previous sign-in before the first paint, so the Analyse button is
+  // either there or not rather than appearing a moment later.
+  loadSession();
   applyLang();
+  applyAuthUi();
   initAddressCascade().catch((err) => console.error("address cascade failed:", err));
 
   loadViewport().catch((err) => {
