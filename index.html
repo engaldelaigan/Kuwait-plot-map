@@ -423,7 +423,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   .combo-list li.active,
   .combo-list li[data-value]:hover { background: var(--accent); color: #fff; }
   .combo-list li.none { color: #8a958d; cursor: default; }
-  #showAreaBtn {
+  #showAreaBtn, #nbhReportBtn {
     font: inherit;
     font-size: 12px;
     font-weight: 600;
@@ -435,6 +435,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
     cursor: pointer;
     white-space: nowrap;
   }
+  /* Secondary to "Show": it reports on the area rather than navigating to it. */
+  #nbhReportBtn { background: var(--paper); color: var(--ink); border-color: var(--line); }
+  #nbhReportBtn:disabled { color: #9aa79f; border-color: var(--line); cursor: default; }
+  #nbhReportBtn[hidden] { display: none; }
   #showAreaBtn:disabled {
     background: #f2f0ea;
     border-color: var(--line);
@@ -798,6 +802,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
         <select id="selBlk" disabled></select>
         <select id="selPar" disabled></select>
         <button id="showAreaBtn" type="button" data-i18n="showArea" disabled>Show</button>
+        <button id="nbhReportBtn" type="button" hidden data-i18n="analyseNbh" disabled>Analyse</button>
       </div>
     </div>
     <div style="display:flex; align-items:center; gap:10px;">
@@ -870,7 +875,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       selGov: "المحافظة",
       showArea: "عرض المنطقة",
       searchArea: "ابحث في هذه المنطقة",
-      drawArea: "تحليل منطقة",
+      drawArea: "تحليل بالرسم",
+      analyseNbh: "تحليل",
       signIn: "تسجيل الدخول",
       signOut: "خروج",
       email: "البريد الإلكتروني",
@@ -950,7 +956,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       selGov: "Governorate",
       showArea: "Show area",
       searchArea: "Search this area",
-      drawArea: "Analyse area",
+      drawArea: "Analyse by drawing",
+      analyseNbh: "Analyse",
       signIn: "Sign in",
       signOut: "Sign out",
       email: "Email",
@@ -1627,14 +1634,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
   function resetDrawing() {
     drawPts = [];
     drawLayer.clearLayers();
-    // A highlight belongs to the shape that produced it; starting a new one
-    // must not leave the previous area's plots painted on the map.
-    if (typeof highlightLayer !== "undefined") {
-      highlightLayer.clearLayers();
-      highlightedCat = null;
-    }
+    closeReport();
     drawLine = null;
     drawMarks = null;
+  }
+
+  // The report describes one particular area. Once that area is gone -- the
+  // outline cleared, a different neighbourhood chosen, the selection dropped --
+  // leaving the numbers on screen means they now describe nothing, so
+  // everything that ends an area ends the report with it.
+  function closeReport() {
+    reportEl.hidden = true;
+    highlightLayer.clearLayers();
+    highlightedCat = null;
+    reportScope = null;
   }
 
   function redrawOutline(preview) {
@@ -1669,6 +1682,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     if (drawPts.length < 3) { statusEl.textContent = t("drawNeedMore"); return; }
     const ring = [...drawPts, drawPts[0]];
     const shape = { type: "Polygon", coordinates: [ring] };
+    reportScope = { kind: "shape", ring };
     redrawOutline(null);
     statusEl.textContent = t("analysing");
     // Leave draw mode BEFORE reporting the outcome: setDrawMode clears the
@@ -1699,10 +1713,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       `<h3>${t("reportTitle")}</h3><p class="muted">${msg}</p>`;
     reportEl.hidden = false;
     reportEl.querySelector(".close").addEventListener("click", () => {
-      reportEl.hidden = true;
+      closeReport();
       drawLayer.clearLayers();
-      highlightLayer.clearLayers();
-      highlightedCat = null;
     });
   }
 
@@ -1750,9 +1762,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
     }
     reportEl.hidden = false;
     reportEl.querySelector(".close").addEventListener("click", () => {
-      reportEl.hidden = true;
+      closeReport();
       drawLayer.clearLayers();
-      highlightLayer.clearLayers();
     });
     for (const tr of reportEl.querySelectorAll("tr.cat")) {
       const go = () => highlightCategory(tr.dataset.cat, tr);
@@ -1766,6 +1777,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // hunt for a way to undo.
   const highlightLayer = L.layerGroup().addTo(map);
   let highlightedCat = null;
+  // How the open report was scoped: a drawn shape, or a chosen neighbourhood.
+  // The highlight has to ask the same question the counts came from, or a row
+  // saying 8 would light up a different set.
+  let reportScope = null; // { kind: "shape", ring } | { kind: "nbh", gov, nbh }
 
   async function highlightCategory(cat, row) {
     for (const el of reportEl.querySelectorAll("tr.cat")) el.classList.remove("on");
@@ -1774,13 +1789,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
     highlightedCat = cat;
     row.classList.add("on");
 
-    const ring = [...drawPts, drawPts[0]];
     let rows = [];
     try {
-      rows = await authRpc("area_plots", {
-        shape: JSON.stringify({ type: "Polygon", coordinates: [ring] }),
-        cat,
-      });
+      rows = reportScope?.kind === "nbh"
+        ? await authRpc("area_plots_nbh", { gov: reportScope.gov, nbh: reportScope.nbh, cat })
+        : await authRpc("area_plots", {
+            shape: JSON.stringify({ type: "Polygon", coordinates: [reportScope.ring] }),
+            cat,
+          });
     } catch (err) {
       console.error(err);
       highlightedCat = null;
@@ -1850,6 +1866,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
   function applyAuthUi() {
     const inS = !!session;
     drawBtn.hidden = !inS;
+    // By id, not via the const: that is declared much later, and `typeof` on a
+    // binding still in its temporal dead zone throws rather than returning
+    // "undefined", so it cannot be guarded that way either.
+    const nbhBtn = document.getElementById("nbhReportBtn");
+    if (nbhBtn) nbhBtn.hidden = !inS;
     authBtn.textContent = inS ? t("signOut") : t("signIn");
     authBtn.title = inS ? session.email ?? "" : "";
     if (!inS) {
@@ -1909,6 +1930,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     if (e.key !== "Escape") return;
     if (measuring) cancelInProgress();
     else if (drawMode) setDrawMode(false);
+    else if (!reportEl.hidden) { closeReport(); drawLayer.clearLayers(); }
     else if (setbackMode) { setSetbackMode(false); statusEl.textContent = ""; }
     else if (resultsEl.classList.contains("visible")) hideResults();
     else clearSelection();
@@ -1923,7 +1945,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
   let plotJustClicked = false;
   map.on("click", () => {
     if (plotJustClicked) { plotJustClicked = false; return; }
-    if (!measuring && !setbackMode) clearSelection();
+    if (measuring || setbackMode || drawMode) return;
+    clearSelection();
+    // Clicking empty map is the "clear what I was looking at" gesture, and an
+    // area report is part of what you were looking at.
+    if (!reportEl.hidden) { closeReport(); drawLayer.clearLayers(); }
   });
 
   document.getElementById("clearBtn").addEventListener("click", clearAllMeasurements);
@@ -3283,7 +3309,40 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // further and parcel is optional. Requiring a full address just to look at
   // an area was the wrong way round.
   const showAreaBtn = document.getElementById("showAreaBtn");
-  const syncShowArea = () => { showAreaBtn.disabled = !selNbh.value; };
+  const nbhReportBtn = document.getElementById("nbhReportBtn");
+  const syncShowArea = () => {
+    showAreaBtn.disabled = !selNbh.value;
+    // Governorate + neighbourhood is enough to report on; block and parcel
+    // narrow the map view but are not needed for a district breakdown.
+    nbhReportBtn.disabled = !selNbh.value;
+    nbhReportBtn.hidden = !session;
+  };
+
+  // Report a whole neighbourhood by its code rather than by a hand-drawn
+  // outline: no clipped plots at the edge, no accidental spill into the next
+  // district, and a grouped count on an indexed column instead of a spatial
+  // intersect.
+  nbhReportBtn.addEventListener("click", async () => {
+    const gov = Number(selGov.value), nbh = Number(selNbh.value);
+    if (!gov || !nbh) return;
+    nbhReportBtn.disabled = true;
+    statusEl.textContent = t("analysing");
+    // The drawn outline belongs to a different question; clear it so the map
+    // is not showing one area while the panel describes another.
+    resetDrawing();
+    reportScope = { kind: "nbh", gov, nbh };
+    try {
+      const rows = await authRpc("area_report_nbh", { gov, nbh });
+      showReport(rows);
+      statusEl.textContent = "";
+    } catch (err) {
+      showReportMessage(/401|not signed in/.test(err.message) ? t("signIn") : t("loadFailed"));
+      statusEl.textContent = "";
+      console.error(err);
+    } finally {
+      nbhReportBtn.disabled = false;
+    }
+  });
   // Set before any programmatic map move so the moveend handler doesn't
   // re-fetch a view we've just loaded.
   let skipNextMoveLoad = false;
@@ -3359,6 +3418,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   selGov.addEventListener("change", async () => {
     const seq = ++cascadeSeq;
+    closeReport(); // it described the previous area
     empty(selNbh, "selNbh");
     empty(selBlk, "selBlk");
     empty(selPar, "selPar");
@@ -3373,6 +3433,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   selNbh.addEventListener("change", async () => {
     const seq = ++cascadeSeq;
+    closeReport();
     empty(selBlk, "selBlk");
     empty(selPar, "selPar");
     syncShowArea();
