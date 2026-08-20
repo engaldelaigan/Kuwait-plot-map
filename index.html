@@ -160,9 +160,22 @@ svg.leaflet-zoom-animated{will-change:transform;}
     padding: 10px 12px;
     font-size: 12px;
     max-width: 240px;
+    /* Some parcels have dozens of sides -- one has 93 -- and without a cap the
+       panel grew past the top of the map and pushed Print off-screen. */
+    max-height: calc(100% - 20px);
+    overflow-y: auto;
     display: none;
   }
   #panel.visible { display: block; }
+  /* The side list scrolls inside the panel rather than stretching it, so the
+     rows below it (and the Print button) stay where you left them however many
+     sides a parcel has. */
+  #panel .sides-list {
+    max-height: 124px;
+    overflow-y: auto;
+    padding-inline-end: 4px;
+  }
+  #panel .sides-count { color: #5b6b60; font-weight: 400; }
   #panel dt {
     color: #5b6b60;
     font-size: 10px;
@@ -1989,10 +2002,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const street = pick(props.street_ar, props.street_en);
     const title = pick(props.title_ar, props.title_en);
     const sidesHtml = props.sides.length
-      ? `<dd style="font-weight:400;">${props.sides
+      ? `<dd class="sides-list" style="font-weight:400;">${props.sides
           .map((s) => `<b>${s.n}</b> &mdash; ${fmtSide(s.length)}`)
           .join("<br>")}</dd>`
       : "<dd>&mdash;</dd>";
+    // Worth saying how many there are when the list is scrolled: otherwise a
+    // 93-sided parcel looks like a handful of sides that stop abruptly.
+    const sidesLabel =
+      props.sides.length > 6
+        ? `${t("sides")} <span class="sides-count">(${props.sides.length})</span>`
+        : t("sides");
     // Each label/value pair is wrapped so the two-column mobile layout can't
     // strand a value in the other column from its label.
     const row = (label, value) => `<div><dt>${label}</dt><dd>${value}</dd></div>`;
@@ -2009,7 +2028,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       row(t("area"), fmtNum(props.measured_area ?? props.computed_area, "m&sup2;")) +
       // Filled in below: it needs a round trip, and the panel should not wait.
       `<div><dt>${t("setback")}</dt><dd id="setbackVal">…</dd></div>` +
-      `<div><dt>${t("sides")}</dt>${sidesHtml}</div>` +
+      `<div><dt>${sidesLabel}</dt>${sidesHtml}</div>` +
       `<dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button></dd>`;
     panelEl.classList.add("visible");
     showSideLabels(props, layer);
