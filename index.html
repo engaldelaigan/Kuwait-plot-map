@@ -700,6 +700,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
   #report td { padding: 2px 0; }
   #report td.n { text-align: end; font-weight: 700; padding-inline-start: 10px; }
   #report .total { border-top: 1px solid var(--line); font-weight: 700; }
+  /* Rows are buttons in all but name -- clicking one paints those plots. */
+  #report tr.cat { cursor: pointer; }
+  #report tr.cat:hover td, #report tr.cat:focus-visible td { background: #e6ece7; }
+  #report tr.cat.on td { background: #e67e22; color: #fff; }
+  #report tr.cat td:first-child { padding-inline-start: 4px; border-radius: 4px 0 0 4px; }
+  #report tr.cat td:last-child { padding-inline-end: 4px; border-radius: 0 4px 4px 0; }
   #report .muted { color: #5b6b60; font-weight: 400; font-size: 11px; }
   #report .close {
     float: inline-end; border: none; background: none; cursor: pointer;
@@ -1566,9 +1572,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   map.getContainer().addEventListener("pointerdown", (e) => {
     if (!setbackMode || measuring || !onMapSurface(e)) return;
+    // Only a click ON a boundary places a line. A click in the middle of a plot
+    // is left alone so it reaches the layer and selects it as normal -- with the
+    // mode on, such clicks previously did nothing at all, which made it look
+    // like selecting a plot had stopped working.
+    const ll = map.mouseEventToLatLng(e);
+    const kx = mPerDegLon(ll.lat), ky = mPerDegLat(ll.lat);
+    if (!nearestPlotEdge(ll, kx, ky, 14 * metersPerPixel())) return;
     e.preventDefault();
     e.stopPropagation();
-    setbackFromPoint(map.mouseEventToLatLng(e));
+    setbackFromPoint(ll);
   }, true);
 
   // ---- Draw an area, report what is in it --------------------------------
@@ -1614,6 +1627,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
   function resetDrawing() {
     drawPts = [];
     drawLayer.clearLayers();
+    // A highlight belongs to the shape that produced it; starting a new one
+    // must not leave the previous area's plots painted on the map.
+    if (typeof highlightLayer !== "undefined") {
+      highlightLayer.clearLayers();
+      highlightedCat = null;
+    }
     drawLine = null;
     drawMarks = null;
   }
@@ -1682,6 +1701,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
     reportEl.querySelector(".close").addEventListener("click", () => {
       reportEl.hidden = true;
       drawLayer.clearLayers();
+      highlightLayer.clearLayers();
+      highlightedCat = null;
     });
   }
 
@@ -1711,7 +1732,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       return;
     } else {
       const body = rows
-        .map((r) => `<tr><td>${pick(r)}</td><td class="n">${Number(r.n).toLocaleString()}</td></tr>`)
+        .map(
+          (r) =>
+            `<tr class="cat" data-cat="${r.category}" tabindex="0">` +
+            `<td>${pick(r)}</td><td class="n">${Number(r.n).toLocaleString()}</td></tr>`
+        )
         .join("");
       // The guard in area_report stops at 20,000 rows; say so rather than
       // presenting a truncated count as the answer.
@@ -1727,7 +1752,58 @@ svg.leaflet-zoom-animated{will-change:transform;}
     reportEl.querySelector(".close").addEventListener("click", () => {
       reportEl.hidden = true;
       drawLayer.clearLayers();
+      highlightLayer.clearLayers();
     });
+    for (const tr of reportEl.querySelectorAll("tr.cat")) {
+      const go = () => highlightCategory(tr.dataset.cat, tr);
+      tr.addEventListener("click", go);
+      tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+    }
+  }
+
+  // Picking a row paints those plots on the map. Clicking the same row again
+  // clears them, so the highlight is a toggle rather than something you have to
+  // hunt for a way to undo.
+  const highlightLayer = L.layerGroup().addTo(map);
+  let highlightedCat = null;
+
+  async function highlightCategory(cat, row) {
+    for (const el of reportEl.querySelectorAll("tr.cat")) el.classList.remove("on");
+    highlightLayer.clearLayers();
+    if (highlightedCat === cat) { highlightedCat = null; return; }
+    highlightedCat = cat;
+    row.classList.add("on");
+
+    const ring = [...drawPts, drawPts[0]];
+    let rows = [];
+    try {
+      rows = await authRpc("area_plots", {
+        shape: JSON.stringify({ type: "Polygon", coordinates: [ring] }),
+        cat,
+      });
+    } catch (err) {
+      console.error(err);
+      highlightedCat = null;
+      row.classList.remove("on");
+      return;
+    }
+    if (highlightedCat !== cat) return; // a different row was picked meanwhile
+
+    const feats = rows.filter((r) => r.geom).map((r) => ({
+      type: "Feature",
+      geometry: r.geom,
+      properties: { global_id: r.global_id, parcel_no: r.parcel_no, title_ar: r.title_ar },
+    }));
+    L.geoJSON(
+      { type: "FeatureCollection", features: feats },
+      {
+        style: { color: "#e67e22", weight: 2, fillColor: "#f39c12", fillOpacity: 0.55 },
+        onEachFeature: (f, lyr) => {
+          const label = [f.properties.parcel_no, f.properties.title_ar].filter(Boolean).join(" · ");
+          if (label) lyr.bindTooltip(label);
+        },
+      }
+    ).addTo(highlightLayer);
   }
 
   drawBtn.addEventListener("click", () => setDrawMode(!drawMode));
@@ -2385,6 +2461,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
     showSideLabels(props, layer);
     document.getElementById("printBtn").addEventListener("click", () => printPlot(props));
     loadSetback(props.global_id);
+    // With الارتداد switched on, selecting a plot draws its setbacks straight
+    // away -- the point of leaving the mode on is not having to press the
+    // button again for every plot.
+    if (setbackMode) autoSetback();
   }
 
   // Distance from the plot to the nearest paved road, measured against the
@@ -2623,9 +2703,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
           }
           lyr.on("click", () => {
             plotJustClicked = true;
-            // In setback mode a click means "measure from here", so it must not
-            // also swap the selected plot out from under the measurement.
-            if (!measuring && !setbackMode) showPanel(feature.properties, lyr);
+            if (!measuring) showPanel(feature.properties, lyr);
           });
           lyr.on("mouseover", () => lyr.setStyle({ fillOpacity: 0.75 }));
           lyr.on("mouseout", () => lyr.setStyle({ fillOpacity: 0.45 }));
