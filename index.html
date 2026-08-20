@@ -664,7 +664,25 @@ svg.leaflet-zoom-animated{will-change:transform;}
     background: var(--paper); color: var(--ink); cursor: pointer;
   }
   #drawBtn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-  #drawBtn[hidden], #report[hidden], #loginBox[hidden] { display: none; }
+  #drawBtn[hidden], #report[hidden], #loginBox[hidden], #drawBar[hidden] { display: none; }
+
+  /* Sits where "Search this area" does, which is hidden while drawing -- the
+     two are never useful at the same moment. */
+  #drawBar {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 900; display: flex; gap: 6px;
+    background: var(--paper); border: 1px solid var(--line);
+    border-radius: 999px; padding: 5px 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  }
+  #drawBar button {
+    font: inherit; font-size: 12px; font-weight: 600;
+    padding: 5px 12px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  }
+  #drawDone { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #drawDone:disabled { background: #cfd8d2; border-color: #cfd8d2; color: #7d8a83; cursor: default; }
+  @media (max-width: 760px) { #drawBar button { font-size: 11px; padding: 5px 9px; } }
 
   /* Results of a drawn area. Sits opposite the plot panel so both can be open. */
   #report {
@@ -793,6 +811,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
   <div style="position: relative; flex: 1; min-height: 0;">
     <div id="map"></div>
     <button id="areaBtn" type="button" data-i18n="searchArea">Search this area</button>
+    <div id="drawBar" hidden>
+      <button id="drawDone" type="button" disabled></button>
+      <button id="drawUndo" type="button" data-i18n="undo">Undo</button>
+      <button id="drawCancel" type="button" data-i18n="cancel">Cancel</button>
+    </div>
     <div id="report" hidden></div>
     <div id="loginBox" hidden>
       <form id="loginForm" autocomplete="on">
@@ -847,8 +870,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
       email: "البريد الإلكتروني",
       password: "كلمة المرور",
       cancel: "إلغاء",
-      drawHint: "انقر لرسم حدود المنطقة، ثم انقر على نقطة البداية أو اضغط Enter",
+      drawHint: "انقر لرسم حدود المنطقة، ثم اضغط «عرض النتائج»",
       drawNeedMore: "تحتاج ثلاث نقاط على الأقل",
+      undo: "تراجع",
+      drawDone: (n) => (n < 3 ? `عرض النتائج (${n}/3)` : `عرض النتائج (${n})`),
       analysing: "جارٍ التحليل…",
       reportTitle: "القسائم داخل المنطقة",
       reportTotal: "الإجمالي",
@@ -897,9 +922,6 @@ svg.leaflet-zoom-animated{will-change:transform;}
       print: "طباعة القسيمة",
       side: "الضلع",
       length: "الطول",
-      legPlot: "قسيمة",
-      legStreet: "حد الشارع",
-      legRoad: "محور الشارع",
       searching: "جارٍ البحث…",
       noMatch: "لا توجد نتائج",
       noMatchHint: (q) => `لم يتم العثور على "${q}". جرّب اسم الشارع أو المنطقة أو القطعة/القسيمة مثل ٢/٦٤.`,
@@ -928,8 +950,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
       email: "Email",
       password: "Password",
       cancel: "Cancel",
-      drawHint: "Click to outline the area, then click the first point or press Enter",
+      drawHint: "Click to outline the area, then press Show results",
       drawNeedMore: "Needs at least three points",
+      undo: "Undo",
+      drawDone: (n) => (n < 3 ? `Show results (${n}/3)` : `Show results (${n})`),
       analysing: "analysing…",
       reportTitle: "Plots inside the area",
       reportTotal: "Total",
@@ -972,9 +996,6 @@ svg.leaflet-zoom-animated{will-change:transform;}
       print: "Print this plot",
       side: "Side",
       length: "Length",
-      legPlot: "plot",
-      legStreet: "street edge",
-      legRoad: "road centre",
       searching: "searching…",
       noMatch: "no match",
       noMatchHint: (q) => `Nothing found for "${q}". Try a street or area name, or block/parcel like 2/64.`,
@@ -1045,26 +1066,23 @@ svg.leaflet-zoom-animated{will-change:transform;}
     { maxNativeZoom: 19, maxZoom: 22, attribution: "Imagery &copy; Esri" }
   );
 
-  const roadsLayer = L.layerGroup();
-  const blocksLayer = L.layerGroup().addTo(map);
-  // The paved-road polygons: the actual kerb. On by default, because "how far
-  // back is the plot from the road" is what this app is for, and this is the
-  // only layer that answers it correctly.
+  // The paved-road polygons: the actual kerb. Always on -- "how far back is the
+  // plot from the road" is what this app is for, this is the only layer that
+  // answers it correctly, and the ruler snaps to it.
   const kerbLayer = L.layerGroup().addTo(map);
   L.control
     .layers(
       { "OpenStreetMap": tiles, Satellite: satellite },
-      // Named for what they actually are. "Street edges" was wrong -- the block
-      // layer is a planning boundary, typically ~100 m from any plot, never a
-      // kerb; and the road layer is a centreline, so it sits half a carriageway
-      // beyond the kerb. Measuring to either and calling it "distance to the
-      // street" overstates the setback, which is exactly the mistake the old
-      // labels invited.
-      {
-        "حافة الشارع · Road edge (kerb)": kerbLayer,
-        "حدود القطاع · Block boundaries": blocksLayer,
-        "محاور الشوارع · Street centrelines": roadsLayer,
-      },
+      // No overlay toggles: the control now only picks a basemap.
+      //
+      // The kerb layer stays on permanently -- it is what the ruler snaps to and
+      // what the setback is measured against, so it is not optional. Block
+      // boundaries and street centrelines are gone entirely: both were
+      // measured against in the belief they marked the street, and neither
+      // does (a block boundary is a planning line ~100 m from any plot, a
+      // centreline sits half a carriageway past the kerb). With nothing left
+      // to switch them on, loading them was pure cost.
+      {},
       // Expanded is handy on a desktop; on a phone it covers a third of the
       // map, so it collapses to an icon there.
       { collapsed: window.innerWidth <= 760 }
@@ -1096,21 +1114,18 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // edges and road lines, so measuring "from this corner to that street" is
   // exact rather than eyeballed.
   // Snap targets carry a `kind` so the indicator can show what you're locking
-  // onto. It matters a great deal which one a measurement ends on:
+  // onto. Only two remain, and both are real physical lines:
   //   plot  -- a parcel boundary
   //   kerb  -- the edge of the paved road. This is what the municipality's own
   //            KME Guide measures to, and the only correct target for "how far
   //            is the plot from the street".
-  //   block -- a planning boundary, typically ~100 m away. Not a kerb, despite
-  //            what this layer used to be called.
-  //   road  -- a centreline, half a carriageway beyond the kerb.
+  // Block boundaries and road centrelines used to be snappable and are not any
+  // more: a block boundary is a planning line ~100 m from any plot, and a
+  // centreline sits half a carriageway past the kerb. Measuring to either is
+  // what made setbacks read 7 m instead of 2 m.
   const snapVerts = []; // { p:[lng,lat], kind }
   const snapSegs = []; // { a:[lng,lat], b:[lng,lat], kind }
-  // Road centrelines are kept apart: they only count as snap targets while
-  // that layer is actually switched on. Snapping to geometry you can't see is
-  // just a wrong answer you can't diagnose.
-  const roadSnapSegs = [];
-  const SNAP_COLORS = { plot: "#2d7a3e", kerb: "#c0392b", street: "#e67e22", road: "#8e44ad" };
+  const SNAP_COLORS = { plot: "#2d7a3e", kerb: "#c0392b" };
 
   let measuring = false;
   let measureStart = null; // anchor while a line is being drawn
@@ -1157,7 +1172,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     if (best) return { ll: best, kind: bestKind }; // corners beat edges
 
     bestD = tol;
-    const sources = map.hasLayer(roadsLayer) ? [snapSegs, roadSnapSegs] : [snapSegs];
+    const sources = [snapSegs];
     for (const list of sources)
       for (const s of list) {
         const ax = s.a[0] * mx, ay = s.a[1] * my;
@@ -1194,7 +1209,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const py = latlng.lat * my;
     let best = null;
     let bestD = maxM;
-    const sources = map.hasLayer(roadsLayer) ? [snapSegs, roadSnapSegs] : [snapSegs];
+    const sources = [snapSegs];
     for (const list of sources)
       for (const s of list) {
         const ax = s.a[0] * mx, ay = s.a[1] * my;
@@ -1564,6 +1579,22 @@ svg.leaflet-zoom-animated{will-change:transform;}
   let drawPts = [];       // [lng, lat]
   let drawLine = null, drawMarks = null;
 
+  const drawBar = document.getElementById("drawBar");
+  const drawDoneBtn = document.getElementById("drawDone");
+
+  // Closing the ring by clicking the first point is fiddly on a phone and not
+  // discoverable anywhere, so finishing is an explicit button. The count on it
+  // doubles as the "you need three" prompt.
+  function syncDrawBar() {
+    drawBar.hidden = !drawMode;
+    // Looked up by id rather than via the const: that is declared far below
+    // this function, so touching it here would depend on call ordering.
+    document.getElementById("areaBtn").hidden = drawMode; // same spot, never both useful
+    drawDoneBtn.textContent = t("drawDone", drawPts.length);
+    drawDoneBtn.disabled = drawPts.length < 3;
+    document.getElementById("drawUndo").disabled = drawPts.length === 0;
+  }
+
   function setDrawMode(on) {
     drawMode = on;
     drawBtn.classList.toggle("active", on);
@@ -1571,11 +1602,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
     if (on) {
       if (measuring) measureBtn.click();
       if (setbackMode) setSetbackMode(false);
+      resetDrawing();
       statusEl.textContent = t("drawHint");
     } else {
       resetDrawing();
       statusEl.textContent = "";
     }
+    syncDrawBar();
   }
 
   function resetDrawing() {
@@ -1625,6 +1658,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     drawMode = false;
     drawBtn.classList.remove("active");
     map.getContainer().style.cursor = "";
+    syncDrawBar(); // hides the bar, brings "Search this area" back
     try {
       const rows = await authRpc("area_report", { shape: JSON.stringify(shape) });
       showReport(rows);
@@ -1697,6 +1731,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }
 
   drawBtn.addEventListener("click", () => setDrawMode(!drawMode));
+  drawDoneBtn.addEventListener("click", () => finishDrawing());
+  document.getElementById("drawCancel").addEventListener("click", () => setDrawMode(false));
+  document.getElementById("drawUndo").addEventListener("click", () => {
+    drawPts.pop();
+    redrawOutline(null);
+    syncDrawBar();
+  });
 
   // Points land on release, not on press, and only if the pointer barely moved.
   // Panning stays available while drawing -- outlining a neighbourhood needs
@@ -1717,6 +1758,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     if (nearFirstPoint(ll)) { finishDrawing(); return; }
     drawPts.push([ll.lng, ll.lat]);
     redrawOutline(null);
+    syncDrawBar();
   }, true);
 
   map.getContainer().addEventListener("pointermove", (e) => {
@@ -2764,75 +2806,6 @@ svg.leaflet-zoom-animated{will-change:transform;}
     ).addTo(kerbLayer);
   }
 
-  // Road centrelines for the current view. They are snap targets, but
-  // deliberately NOT vertices and marked as a distinct kind: a centreline runs
-  // down the middle of the carriageway, so snapping a "distance to the street"
-  // measurement to it overshoots by half a road width. The kerb layer above is
-  // what you actually want.
-  async function loadRoadsInView() {
-    const b = map.getBounds();
-    const rows = await api(
-      `rpc/roads_in_bbox?min_lon=${b.getWest()}&min_lat=${b.getSouth()}` +
-        `&max_lon=${b.getEast()}&max_lat=${b.getNorth()}`
-    ).catch(() => []);
-
-    roadsLayer.clearLayers();
-    roadSnapSegs.length = 0;
-    const features = [];
-    for (const r of rows) {
-      if (!r.geom) continue;
-      features.push({ type: "Feature", geometry: r.geom, properties: { road_name: r.road_name } });
-      const line = r.geom.coordinates;
-      for (let i = 0; i < line.length - 1; i++)
-        roadSnapSegs.push({ a: line[i], b: line[i + 1], kind: "road" });
-    }
-
-    L.geoJSON(
-      { type: "FeatureCollection", features },
-      {
-        style: { color: "#8e44ad", weight: 2, opacity: 0.9 },
-        onEachFeature: (f, lyr) => {
-          if (f.properties.road_name) lyr.bindTooltip(f.properties.road_name);
-        },
-      }
-    ).addTo(roadsLayer);
-  }
-
-  // Planning-block boundaries. These were once described here as "the kerb
-  // line" -- they are not, and measuring against them was one source of the
-  // inflated setbacks: the median block boundary is ~100 m from any plot, and
-  // none is within 1 m. They stay because they show how an area is divided up.
-  async function loadBlocksInView() {
-    const b = map.getBounds();
-    const rows = await api(
-      `rpc/blocks_in_bbox?min_lon=${b.getWest()}&min_lat=${b.getSouth()}` +
-        `&max_lon=${b.getEast()}&max_lat=${b.getNorth()}`
-    ).catch(() => []);
-
-    blocksLayer.clearLayers();
-    // Rebuild rather than append, so kerb lines from a previous area can't be
-    // snapped to after navigating somewhere else.
-    for (let i = snapSegs.length - 1; i >= 0; i--) {
-      if (snapSegs[i].kind === "street") snapSegs.splice(i, 1);
-    }
-
-    const features = [];
-    for (const row of rows) {
-      if (!row.geom) continue;
-      features.push({ type: "Feature", geometry: row.geom, properties: {} });
-      const polys = row.geom.type === "MultiPolygon" ? row.geom.coordinates : [row.geom.coordinates];
-      for (const poly of polys)
-        for (const ring of poly)
-          for (let i = 0; i < ring.length - 1; i++)
-            snapSegs.push({ a: ring[i], b: ring[i + 1], kind: "street" });
-    }
-
-    L.geoJSON(
-      { type: "FeatureCollection", features },
-      { style: { color: "#e67e22", weight: 1.5, fill: false, dashArray: "4,3" }, interactive: false }
-    ).addTo(blocksLayer);
-  }
-
   // ---- Search -------------------------------------------------------------
   // Accepts, in order of specificity:
   //   "2/64"          -> block 2, parcel 64
@@ -3398,11 +3371,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // Returns the plots actually drawn, so callers can tell whether a view
   // shows everything in an area or hit the per-view cap.
   async function loadViewport(opts = {}) {
+    // Blocks and centrelines are no longer fetched at all -- nothing can show
+    // them, and the block query alone was a request per viewport move.
     const [features] = await Promise.all([
       loadPlotsInView(opts),
-      loadBlocksInView(),
       map.hasLayer(kerbLayer) ? loadKerbsInView() : Promise.resolve(),
-      map.hasLayer(roadsLayer) ? loadRoadsInView() : Promise.resolve(),
     ]);
     return features;
   }
@@ -3473,21 +3446,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
     }, 350);
   });
 
-  // Road centrelines are off by default; fetch them the first time they're
-  // switched on rather than loading them for every view.
-  map.on("overlayadd", (e) => {
-    if (e.layer === roadsLayer) loadRoadsInView().catch((err) => console.error(err));
-    if (e.layer === kerbLayer) loadKerbsInView().catch((err) => console.error(err));
-  });
-
-  // Switching a layer off has to drop its snap targets too, or the ruler keeps
-  // latching onto a line that is no longer on screen.
-  map.on("overlayremove", (e) => {
-    if (e.layer !== kerbLayer) return;
-    for (let i = snapSegs.length - 1; i >= 0; i--) {
-      if (snapSegs[i].kind === "kerb") snapSegs.splice(i, 1);
-    }
-  });
+  // No overlay toggles remain, so nothing to hook: the kerb layer is always on
+  // and is loaded by loadViewport with everything else.
 
   // Installable app. Registered only over HTTPS (or localhost) -- browsers
   // refuse service workers on plain http, and the local dev server uses it.
