@@ -1791,12 +1791,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
     let rows = [];
     try {
-      rows = reportScope?.kind === "nbh"
-        ? await authRpc("area_plots_nbh", { gov: reportScope.gov, nbh: reportScope.nbh, cat })
-        : await authRpc("area_plots", {
-            shape: JSON.stringify({ type: "Polygon", coordinates: [reportScope.ring] }),
-            cat,
-          });
+      const s = reportScope;
+      rows =
+        s?.kind === "blk"
+          ? await authRpc("area_plots_blk", { gov: s.gov, nbh: s.nbh, blk: s.blk, cat })
+          : s?.kind === "nbh"
+            ? await authRpc("area_plots_nbh", { gov: s.gov, nbh: s.nbh, cat })
+            : await authRpc("area_plots", {
+                shape: JSON.stringify({ type: "Polygon", coordinates: [s.ring] }),
+                cat,
+              });
     } catch (err) {
       console.error(err);
       highlightedCat = null;
@@ -3325,14 +3329,17 @@ svg.leaflet-zoom-animated{will-change:transform;}
   nbhReportBtn.addEventListener("click", async () => {
     const gov = Number(selGov.value), nbh = Number(selNbh.value);
     if (!gov || !nbh) return;
+    const blk = selBlk.value || null; // a chosen block narrows the report to it
     nbhReportBtn.disabled = true;
     statusEl.textContent = t("analysing");
     // The drawn outline belongs to a different question; clear it so the map
     // is not showing one area while the panel describes another.
     resetDrawing();
-    reportScope = { kind: "nbh", gov, nbh };
+    reportScope = blk ? { kind: "blk", gov, nbh, blk } : { kind: "nbh", gov, nbh };
     try {
-      const rows = await authRpc("area_report_nbh", { gov, nbh });
+      const rows = blk
+        ? await authRpc("area_report_blk", { gov, nbh, blk })
+        : await authRpc("area_report_nbh", { gov, nbh });
       showReport(rows);
       statusEl.textContent = "";
     } catch (err) {
@@ -3438,17 +3445,21 @@ svg.leaflet-zoom-animated{will-change:transform;}
     empty(selPar, "selPar");
     syncShowArea();
     if (!selNbh.value) return;
-    const rows = await api(`rpc/list_blocks_v2?nbh=${q(selNbh.value)}`);
+    // From `plots`, not address_index: the index describes the retired parcel
+    // set, and in redeveloped areas its blocks no longer exist. Khiran offered
+    // 14 blocks none of which any parcel is in.
+    const rows = await api(`rpc/list_blocks_v3?gov=${q(selGov.value)}&nbh=${q(selNbh.value)}`);
     if (seq !== cascadeSeq) return;
     fillSelect(selBlk, t("selBlk"), rows.map((r) => r.block_no), (x) => x, (x) => x);
   });
 
   selBlk.addEventListener("change", async () => {
     const seq = ++cascadeSeq;
+    closeReport(); // a report for the previous block no longer describes this one
     empty(selPar, "selPar");
     if (!selBlk.value) return;
     const rows = await api(
-      `rpc/list_parcels_v2?nbh=${q(selNbh.value)}&blk=${q(selBlk.value)}`
+      `rpc/list_parcels_v3?gov=${q(selGov.value)}&nbh=${q(selNbh.value)}&blk=${q(selBlk.value)}`
     );
     if (seq !== cascadeSeq) return;
     // Label with house number or the feature's name where there is one.
