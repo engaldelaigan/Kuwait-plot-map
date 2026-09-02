@@ -1956,7 +1956,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
     if (!reportEl.hidden) { closeReport(); drawLayer.clearLayers(); }
   });
 
-  document.getElementById("clearBtn").addEventListener("click", clearAllMeasurements);
+  // Clear means clear: the measurements, the selected plot, and any area
+  // report. It used to drop only the measurement lines, so pressing it with a
+  // plot selected appeared to do nothing.
+  document.getElementById("clearBtn").addEventListener("click", () => {
+    clearAllMeasurements();
+    clearSelection();
+    closeReport();
+    drawLayer.clearLayers();
+    statusEl.textContent = "";
+  });
 
   function updateInProgress(ll) {
     measureLine.setLatLngs([measureStart, ll]);
@@ -2321,6 +2330,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
     if (layer) {
       selectedOutline = L.polyline(layer.getLatLngs()[0].concat([layer.getLatLngs()[0][0]]), {
         color: "#c0392b", weight: 3, opacity: 0.95,
+        // Decoration only. Left interactive it sat on top of the selected
+        // plot's boundary and swallowed clicks: pressing a neighbouring plot
+        // near the shared edge hit this line, which has no handler, so nothing
+        // happened and the selection looked stuck.
+        interactive: false,
       }).addTo(map);
     }
     for (const s of props.sides) {
