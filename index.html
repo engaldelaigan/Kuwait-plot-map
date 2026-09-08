@@ -662,6 +662,33 @@ svg.leaflet-zoom-animated{will-change:transform;}
   #areaBtn:disabled { color: #9aa79f; cursor: default; }
   @media (max-width: 760px) { #areaBtn { font-size: 11px; padding: 6px 11px; } }
 
+  #infoBtn {
+    font: inherit; font-size: 15px; line-height: 1; padding: 4px 8px;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--paper); color: var(--ink); cursor: pointer;
+  }
+  #infoBox {
+    position: absolute; inset: 0; z-index: 1500;
+    background: rgba(23, 33, 27, 0.45);
+    display: flex; align-items: center; justify-content: center;
+  }
+  #infoBox[hidden] { display: none; }
+  #infoBox .sheet {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 18px; width: min(430px, 90vw); max-height: 80%; overflow-y: auto;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3); font-size: 12.5px; line-height: 1.5;
+  }
+  #infoBox h2 { margin: 0 0 8px; font-size: 15px; }
+  #infoBox p { margin: 0 0 8px; }
+  #infoBox ul { margin: 0 0 8px; padding-inline-start: 18px; }
+  #infoBox li { margin-bottom: 4px; }
+  #infoBox .stamp { color: #5b6b60; font-size: 11px; }
+  #infoBox button {
+    font: inherit; font-size: 13px; font-weight: 600; padding: 7px 14px;
+    border-radius: 6px; cursor: pointer; margin-top: 4px;
+    background: var(--accent); border: 1px solid var(--accent); color: #fff;
+  }
+
   #drawBtn, #authBtn {
     font: inherit; font-size: 12px; font-weight: 600; padding: 5px 10px;
     border: 1px solid var(--line); border-radius: 6px;
@@ -815,6 +842,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       <button id="clearBtn" type="button" data-i18n="clear">Clear</button>
       <button id="drawBtn" type="button" hidden data-i18n="drawArea">Analyse area</button>
       <button id="authBtn" type="button" data-i18n="signIn">Sign in</button>
+      <button id="infoBtn" type="button" title="معلومات · About">&#9432;</button>
       <button id="langBtn" type="button">EN</button>
     </div>
   </header>
@@ -828,6 +856,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
       <button id="drawCancel" type="button" data-i18n="cancel">Cancel</button>
     </div>
     <div id="report" hidden></div>
+    <div id="infoBox" hidden>
+      <div class="sheet">
+        <h2 data-i18n="aboutTitle">About this map</h2>
+        <p data-i18n="aboutBody">…</p>
+        <ul>
+          <li data-i18n="aboutPos">…</li>
+          <li data-i18n="aboutMeasure">…</li>
+          <li data-i18n="aboutGaps">…</li>
+        </ul>
+        <p class="stamp" id="dataStamp"></p>
+        <button type="button" id="infoClose" data-i18n="close">Close</button>
+      </div>
+    </div>
     <div id="loginBox" hidden>
       <form id="loginForm" autocomplete="on">
         <h2 data-i18n="signIn">Sign in</h2>
@@ -877,6 +918,21 @@ svg.leaflet-zoom-animated{will-change:transform;}
       searchArea: "ابحث في هذه المنطقة",
       drawArea: "تحليل بالرسم",
       analyseNbh: "تحليل",
+      close: "إغلاق",
+      aboutTitle: "عن هذه الخريطة",
+      aboutBody:
+        "نسخة غير رسمية من بيانات بلدية الكويت المتاحة للعموم. هذا الموقع ليس جهة رسمية، " +
+        "ولا تغني معلوماته عن المخطط المساحي المعتمد أو عن مسح ميداني.",
+      aboutPos:
+        "مواقع القسائم مصححة تجريبيًا بمقارنتها بأداة القياس في دليل البلدية، وقد تختلف " +
+        "بمقدار أمتار قليلة. تغيّر مرجع المصدر مرة واحدة بمقدار ٢٧ مترًا دون إشعار.",
+      aboutMeasure:
+        "المسافات والأبعاد استرشادية. المسافة إلى الشارع تُقاس إلى حافة الشارع المعبّد " +
+        "كما تنشرها البلدية، وليست ارتدادًا نظاميًا معتمدًا.",
+      aboutGaps:
+        "بعض القسائم بلا حدود أو بلا اسم أو بلا مساحة مسجّلة، وبعض الشوارع بلا أسماء في " +
+        "بيانات المصدر.",
+      updatedAt: (d) => `آخر تحديث للبيانات: ${d}`,
       signIn: "تسجيل الدخول",
       signOut: "خروج",
       email: "البريد الإلكتروني",
@@ -944,7 +1000,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       limitReached: () => "قرّب أكثر",
       zoomIn: "قرّب لعرض القسائم",
       loadFailed: "فشل التحميل",
-      source: "المصدر: بيانات بلدية الكويت المساحية",
+      // A printed sheet travels: it gets handed to people who never saw the
+      // site and cannot know what it is. The caveat has to be on the paper.
+      source:
+        "المصدر: بيانات بلدية الكويت المساحية المتاحة للعموم. نسخة غير رسمية — " +
+        "القياسات استرشادية ولا تغني عن المخطط المساحي المعتمد أو عن مسح ميداني.",
       printed: "تاريخ الطباعة",
     },
     en: {
@@ -958,6 +1018,23 @@ svg.leaflet-zoom-animated{will-change:transform;}
       searchArea: "Search this area",
       drawArea: "Analyse by drawing",
       analyseNbh: "Analyse",
+      close: "Close",
+      aboutTitle: "About this map",
+      aboutBody:
+        "An unofficial copy of Kuwait Municipality's public map data. This site is not an " +
+        "official source, and nothing here replaces the approved cadastral plan or a " +
+        "surveyor's measurement.",
+      aboutPos:
+        "Plot positions are corrected empirically against the municipality's own measuring " +
+        "tool and may be out by a few metres. The source's own georeferencing shifted once, " +
+        "by 27 m, without notice.",
+      aboutMeasure:
+        "Distances and dimensions are indicative. Distance to street is measured to the edge " +
+        "of the paved road as the municipality publishes it, not to a statutory setback line.",
+      aboutGaps:
+        "Some parcels have no boundary, name or recorded area, and many streets are unnamed " +
+        "in the source data.",
+      updatedAt: (d) => `Data last updated: ${d}`,
       signIn: "Sign in",
       signOut: "Sign out",
       email: "Email",
@@ -1019,7 +1096,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
       limitReached: () => "zoom in",
       zoomIn: "zoom in to load plots",
       loadFailed: "failed to load",
-      source: "Source: Kuwait Municipality cadastral data",
+      source:
+        "Source: Kuwait Municipality public cadastral data. Unofficial copy — measurements " +
+        "are indicative and do not replace the approved cadastral plan or a survey.",
       printed: "Printed",
     },
   };
@@ -1882,6 +1961,22 @@ svg.leaflet-zoom-animated{will-change:transform;}
       reportEl.hidden = true;
     }
   }
+
+  // ---- About / disclaimer -------------------------------------------------
+  const infoBox = document.getElementById("infoBox");
+  document.getElementById("infoBtn").addEventListener("click", async () => {
+    infoBox.hidden = false;
+    const stamp = document.getElementById("dataStamp");
+    stamp.textContent = "";
+    try {
+      // A freshness date is the part that tells someone whether to rely on any
+      // of this; "unofficial copy" alone says nothing about how old the copy is.
+      const d = await api("rpc/data_updated_at");
+      if (d) stamp.textContent = t("updatedAt", new Date(d).toLocaleDateString(lang === "ar" ? "ar-KW" : "en-GB"));
+    } catch { /* the disclaimer still stands without a date */ }
+  });
+  document.getElementById("infoClose").addEventListener("click", () => { infoBox.hidden = true; });
+  infoBox.addEventListener("click", (e) => { if (e.target === infoBox) infoBox.hidden = true; });
 
   authBtn.addEventListener("click", () => {
     if (session) { saveSession(null); return; }
