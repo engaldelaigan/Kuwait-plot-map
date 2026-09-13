@@ -536,7 +536,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     text-align: center;
     box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
   }
-  #panel button {
+  #panel button, #panel a.btn {
     font: inherit;
     font-size: 12px;
     font-weight: 600;
@@ -547,6 +547,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
     color: #fff;
     cursor: pointer;
     width: 100%;
+  }
+  /* An anchor, not a button: it has to open a real URL in a new tab, which on
+     a phone hands off to the Google Maps app. */
+  #panel a.btn {
+    display: block; box-sizing: border-box; text-align: center;
+    text-decoration: none; margin-top: 6px;
+    background: var(--paper); color: var(--ink); border-color: var(--line);
   }
 
   /* While measuring, stop the browser treating a drag as a page scroll. */
@@ -919,6 +926,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       drawArea: "تحليل بالرسم",
       analyseNbh: "تحليل",
       close: "إغلاق",
+      openInMaps: "فتح في خرائط جوجل",
       aboutTitle: "عن هذه الخريطة",
       aboutBody:
         "نسخة غير رسمية من بيانات بلدية الكويت المتاحة للعموم. هذا الموقع ليس جهة رسمية، " +
@@ -1019,6 +1027,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       drawArea: "Analyse by drawing",
       analyseNbh: "Analyse",
       close: "Close",
+      openInMaps: "Open in Google Maps",
       aboutTitle: "About this map",
       aboutBody:
         "An unofficial copy of Kuwait Municipality's public map data. This site is not an " +
@@ -2560,6 +2569,39 @@ svg.leaflet-zoom-animated{will-change:transform;}
   let selectedProps = null;
   let selectedLayer = null;
 
+  // Area-weighted centroid, not the average of the vertices: on an L-shaped or
+  // unevenly-vertexed plot the vertex average drifts towards whichever side has
+  // more points, which can land the pin outside the plot entirely.
+  function plotCentre(geomWgs) {
+    const ring = geomWgs?.coordinates?.[0];
+    if (!ring || ring.length < 4) return null;
+    let a2 = 0, cx = 0, cy = 0;
+    for (let i = 0; i < ring.length - 1; i++) {
+      const [x1, y1] = ring[i], [x2, y2] = ring[i + 1];
+      const f = x1 * y2 - x2 * y1;
+      a2 += f;
+      cx += (x1 + x2) * f;
+      cy += (y1 + y2) * f;
+    }
+    if (Math.abs(a2) < 1e-12) { // degenerate ring -- fall back to the average
+      let sx = 0, sy = 0;
+      for (let i = 0; i < ring.length - 1; i++) { sx += ring[i][0]; sy += ring[i][1]; }
+      const n = ring.length - 1;
+      return [sx / n, sy / n];
+    }
+    return [cx / (3 * a2), cy / (3 * a2)];
+  }
+
+  function mapsLink(props) {
+    const c = plotCentre(props.geom);
+    if (!c) return "";
+    // Coordinates rather than an address: Google does not know Kuwaiti parcel
+    // numbers, and a wrong address is worse than a pin on the right spot.
+    // On a phone this hands off to the Google Maps app.
+    const url = `https://www.google.com/maps/search/?api=1&query=${c[1].toFixed(6)},${c[0].toFixed(6)}`;
+    return `<a class="btn" href="${url}" target="_blank" rel="noopener noreferrer">${t("openInMaps")}</a>`;
+  }
+
   function showPanel(props, layer) {
     selectedProps = props;
     selectedLayer = layer;
@@ -2595,7 +2637,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
       // Filled in below: it needs a round trip, and the panel should not wait.
       `<div><dt>${t("setback")}</dt><dd id="setbackVal">…</dd></div>` +
       `<div><dt>${sidesLabel}</dt>${sidesHtml}</div>` +
-      `<dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button></dd>`;
+      `<dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button>` +
+      mapsLink(props) +
+      `</dd>`;
     panelEl.classList.add("visible");
     showSideLabels(props, layer);
     document.getElementById("printBtn").addEventListener("click", () => printPlot(props));
