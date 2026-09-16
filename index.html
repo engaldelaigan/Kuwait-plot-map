@@ -1149,7 +1149,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
     setTimeout(() => map.invalidateSize(), 50);
   });
 
-  const map = L.map("map", { zoomControl: true }).setView([29.2146, 48.0706], 15);
+  // Opens on Kuwait City. Zoom 15 rather than a wider overview: plots only
+  // load from 15 up, and a first screen of bare basemap reads as broken.
+  const map = L.map("map", { zoomControl: true }).setView([29.3697, 47.9783], 15);
 
   // Satellite imagery is the ground truth for checking whether plot polygons
   // land on the real parcels; OSM is drawn/traced data and can itself be
@@ -1171,10 +1173,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // plot from the road" is what this app is for, this is the only layer that
   // answers it correctly, and the ruler snaps to it.
   const kerbLayer = L.layerGroup().addTo(map);
+  // Not a real layer: a switch in the layer control for plot shading. Whether
+  // it is on the map is what the checkbox shows, so it is added up front when
+  // shading was left on; the overlayadd/remove handlers below do the work.
+  const shadingLayer = L.layerGroup();
+  if (storage.get("kwplots-fill") !== "off") shadingLayer.addTo(map);
   L.control
     .layers(
       { "OpenStreetMap": tiles, Satellite: satellite },
-      // No overlay toggles: the control now only picks a basemap.
+      // The only overlay toggle is plot shading.
       //
       // The kerb layer stays on permanently -- it is what the ruler snaps to and
       // what the setback is measured against, so it is not optional. Block
@@ -1183,7 +1190,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       // does (a block boundary is a planning line ~100 m from any plot, a
       // centreline sits half a carriageway past the kerb). With nothing left
       // to switch them on, loading them was pure cost.
-      {},
+      { "تظليل القسائم · Plot shading": shadingLayer },
       // Expanded is handy on a desktop; on a phone it covers a third of the
       // map, so it collapses to an icon there.
       { collapsed: window.innerWidth <= 760 }
@@ -2036,7 +2043,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // when not measuring it clears the selected plot.
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    if (measuring) cancelInProgress();
+    // Esc leaves a tool rather than just tidying up inside it. Measure used to
+    // only cancel a half-drawn line and stay switched on, so the next plot you
+    // clicked started a measurement instead of opening its details. A line in
+    // progress still gets cancelled first, so that is not lost on one press.
+    if (measuring && measureStart) cancelInProgress();
+    else if (measuring) document.getElementById("measureBtn").click();
     else if (drawMode) setDrawMode(false);
     else if (!reportEl.hidden) { closeReport(); drawLayer.clearLayers(); }
     else if (setbackMode) { setSetbackMode(false); statusEl.textContent = ""; }
@@ -2829,6 +2841,25 @@ svg.leaflet-zoom-animated{will-change:transform;}
   const PLOT_LIMIT = 1000;
   let plotLayer = null;
 
+  // Plot shading can be switched off, which makes the basemap -- satellite
+  // especially -- readable underneath. Outlines stay: without them there is
+  // nothing to click. Hover still gives feedback when shading is off, as a
+  // heavier outline rather than a green wash, so plots remain discoverable
+  // without bringing back the colour the user turned off.
+  let plotFill = storage.get("kwplots-fill") !== "off";
+  const plotStyle = () =>
+    plotFill
+      ? { color: "#3c6e47", weight: 1, fillColor: "#a9c9ab", fillOpacity: 0.45 }
+      : { color: "#3c6e47", weight: 1, fillOpacity: 0 };
+  const plotHoverStyle = () =>
+    plotFill ? { fillOpacity: 0.75 } : { weight: 2.5, fillOpacity: 0 };
+
+  function setPlotFill(on) {
+    plotFill = on;
+    storage.set("kwplots-fill", on ? "on" : "off");
+    if (plotLayer) plotLayer.setStyle(plotStyle());
+  }
+
   function rowsToFeatures(rows) {
     return rows
       .filter((r) => r.geom)
@@ -2879,7 +2910,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     plotLayer = L.geoJSON(
       { type: "FeatureCollection", features },
       {
-        style: { color: "#3c6e47", weight: 1, fillColor: "#a9c9ab", fillOpacity: 0.45 },
+        style: plotStyle,
         onEachFeature: (feature, lyr) => {
           if (highlightGlobalId && feature.properties.global_id === highlightGlobalId) {
             matched = { feature, lyr };
@@ -2888,8 +2919,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
             plotJustClicked = true;
             if (!measuring) showPanel(feature.properties, lyr);
           });
-          lyr.on("mouseover", () => lyr.setStyle({ fillOpacity: 0.75 }));
-          lyr.on("mouseout", () => lyr.setStyle({ fillOpacity: 0.45 }));
+          lyr.on("mouseover", () => lyr.setStyle(plotHoverStyle()));
+          lyr.on("mouseout", () => lyr.setStyle(plotStyle()));
         },
       }
     ).addTo(map);
@@ -3749,8 +3780,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
     }, 350);
   });
 
-  // No overlay toggles remain, so nothing to hook: the kerb layer is always on
-  // and is loaded by loadViewport with everything else.
+  // The kerb layer is always on and loads with everything else. The one
+  // overlay toggle left is plot shading.
+  map.on("overlayadd", (e) => { if (e.layer === shadingLayer) setPlotFill(true); });
+  map.on("overlayremove", (e) => { if (e.layer === shadingLayer) setPlotFill(false); });
 
   // Installable app. Registered only over HTTPS (or localhost) -- browsers
   // refuse service workers on plain http, and the local dev server uses it.
