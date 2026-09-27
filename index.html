@@ -939,6 +939,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       analyseNbh: "تحليل",
       close: "إغلاق",
       openInMaps: "فتح في خرائط جوجل",
+      landUse: "الاستعمال",
       aboutTitle: "عن هذه الخريطة",
       aboutBody:
         "نسخة غير رسمية من بيانات بلدية الكويت المتاحة للعموم. هذا الموقع ليس جهة رسمية، " +
@@ -1040,6 +1041,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       analyseNbh: "Analyse",
       close: "Close",
       openInMaps: "Open in Google Maps",
+      landUse: "Land use",
       aboutTitle: "About this map",
       aboutBody:
         "An unofficial copy of Kuwait Municipality's public map data. This site is not an " +
@@ -2616,6 +2618,27 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return [cx / (3 * a2), cy / (3 * a2)];
   }
 
+  // The municipality's 55 land-use names, fetched once. Without them a plot in
+  // the shared "other" colour could only be described as "other", which is the
+  // one thing the panel exists to improve on.
+  let landUseNames = null;
+  async function loadLandUseNames() {
+    try {
+      const rows = await api("rpc/list_land_uses");
+      landUseNames = new Map(rows.map((r) => [r.code, r.name_ar]));
+      if (selectedProps) showPanel(selectedProps, selectedLayer); // fill in a panel already open
+    } catch { /* the panel falls back to the bucket label */ }
+  }
+
+  function landUseText(props) {
+    const exact = props.land_use != null ? landUseNames?.get(props.land_use) : null;
+    if (exact) return exact;
+    const type = plotType(props);
+    // Gardens are recognised without a land-use code, so name the type.
+    if (type === "gardens" || type === "unknown") return TYPE_LABELS[type][lang === "ar" ? 0 : 1];
+    return TYPE_LABELS[type]?.[lang === "ar" ? 0 : 1] ?? "&mdash;";
+  }
+
   function mapsLink(props) {
     const c = plotCentre(props.geom);
     if (!c) return "";
@@ -2658,6 +2681,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
       // polygon is only a fallback where they publish none, because a derived
       // 1000.1 against a recorded 1000 reads as an error.
       row(t("area"), fmtNum(props.measured_area ?? props.computed_area, "m&sup2;")) +
+      // The exact use, not the bucket. Plots sharing the "other" colour are
+      // precisely the ones where this matters -- it is the only place their
+      // classification is visible.
+      row(t("landUse"), landUseText(props)) +
       // Filled in below: it needs a round trip, and the panel should not wait.
       `<div><dt>${t("setback")}</dt><dd id="setbackVal">…</dd></div>` +
       `<div><dt>${sidesLabel}</dt>${sidesHtml}</div>` +
@@ -2863,14 +2890,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
     const counts = new Map();
     for (const f of labelledFeatures) {
-      const c = f.properties?.category ?? "unknown";
-      counts.set(c, (counts.get(c) ?? 0) + 1);
+      const t = plotType(f.properties);
+      counts.set(t, (counts.get(t) ?? 0) + 1);
     }
     const rows = [...counts.entries()]
       .sort((a, b) => b[1] - a[1])
-      .map(([cat, n]) => {
-        const label = (CATEGORY_LABELS[cat] ?? CATEGORY_LABELS.unknown)[lang === "ar" ? 0 : 1];
-        return `<div class="row"><span class="sw" style="background:${catColor(cat)}"></span>` +
+      .map(([type, n]) => {
+        const label = (TYPE_LABELS[type] ?? TYPE_LABELS.unknown)[lang === "ar" ? 0 : 1];
+        return `<div class="row"><span class="sw" style="background:${catColor(type)}"></span>` +
                `<span>${label}</span><span class="n">${n.toLocaleString()}</span></div>`;
       })
       .join("");
@@ -2885,56 +2912,61 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // without bringing back the colour the user turned off.
   let plotFill = storage.get("kwplots-fill") !== "off";
 
-  // One colour per category. Residential keeps the green it always had, since
-  // it is the overwhelming majority and changing it would make every familiar
-  // view look wrong. The rest are spread around the wheel so neighbouring
-  // categories are told apart at a glance rather than by careful comparison,
-  // and the two that are not really plots -- setback strips and pathways --
-  // are deliberately near-invisible greys.
-  const CATEGORY_COLORS = {
-    residential:  "#a9c9ab",
-    other_nonres: "#f0a860",
-    park:         "#4caf50",
-    cemetery:     "#8d8299",
-    coop:         "#26a69a",
-    health:       "#e05a5a",
-    education:    "#4a90d9",
-    government:   "#2c4f8a",
-    religious:    "#9575cd",
-    industrial:   "#a1662f",
-    farm:         "#8fa33e",
-    shared:       "#d98cb3",
-    public_other: "#c9b28a",
-    setback:      "#cfd4d0",
-    pathway:      "#cfd4d0",
-    unknown:      "#b7bdb8",
+  // Eight types get their own colour; everything else shares one. Residential
+  // keeps the green it always had -- it is the overwhelming majority, and
+  // recolouring it would make every familiar view look wrong.
+  const TYPE_COLORS = {
+    residential: "#a9c9ab",
+    investment:  "#7e57c2",
+    mixed:       "#ec9a3c",
+    commercial:  "#e05a5a",
+    industrial:  "#a1662f",
+    storage:     "#6d7f8c",
+    government:  "#2c4f8a",
+    gardens:     "#4caf50",
+    other:       "#c9c4b6",
+    unknown:     "#ddd9d0",
   };
-  const CATEGORY_LABELS = {
-    residential:  ["سكني", "Residential"],
-    other_nonres: ["غير سكني", "Non-residential"],
-    park:         ["حديقة", "Park"],
-    cemetery:     ["مقبرة", "Cemetery"],
-    coop:         ["جمعية", "Co-op"],
-    health:       ["مركز صحي", "Health"],
-    education:    ["مدرسة", "School"],
-    government:   ["حكومي", "Government"],
-    religious:    ["مسجد", "Mosque"],
-    industrial:   ["صناعي", "Industrial"],
-    farm:         ["مزرعة", "Farm"],
-    shared:       ["مشاع", "Shared"],
-    public_other: ["مباني عامة أخرى", "Other public"],
-    setback:      ["إرتداد", "Setback strip"],
-    pathway:      ["سكة", "Pathway"],
-    unknown:      ["غير محدد", "Unspecified"],
+  const TYPE_LABELS = {
+    residential: ["سكني", "Residential"],
+    investment:  ["استثماري", "Investment"],
+    mixed:       ["تجاري + استثماري", "Mixed"],
+    commercial:  ["تجاري", "Commercial"],
+    industrial:  ["صناعي", "Industrial"],
+    storage:     ["مخازن", "Storage"],
+    government:  ["حكومي", "Government"],
+    gardens:     ["حدائق", "Gardens"],
+    other:       ["أخرى", "Other"],
+    unknown:     ["غير معروف", "Not classified"],
   };
-  const catColor = (c) => CATEGORY_COLORS[c] ?? CATEGORY_COLORS.unknown;
+  const MAIN_TYPES = ["residential", "investment", "mixed", "commercial",
+                      "industrial", "storage", "government", "gardens"];
+
+  // Which colour a plot gets. Gardens first: there is no garden among the 55
+  // land-use codes, so they are recognised by the parcel's own classification
+  // or the municipality's Class field, and that should win over whatever use
+  // the plot is zoned for.
+  //
+  // "unknown" and "other" are kept apart on purpose. Other means the
+  // municipality classified it as something outside the eight; unknown means
+  // no classification reached us -- about a quarter of plots, mostly ones
+  // created after the dataset that carries land use. Merging them would present
+  // a gap in our data as a fact about the plot.
+  function plotType(p) {
+    if (!p) return "unknown";
+    if (p.category === "park" || p.land_class === 2) return "gardens";
+    if (p.land_bucket && MAIN_TYPES.includes(p.land_bucket)) return p.land_bucket;
+    if (p.land_bucket === "other" || p.land_use != null) return "other";
+    return "unknown";
+  }
+  const catColor = (t) => TYPE_COLORS[t] ?? TYPE_COLORS.unknown;
 
   const plotStyle = (feature) =>
     plotFill
       ? {
           color: "#3c6e47",
           weight: 1,
-          fillColor: catColor(feature?.properties?.category),
+          fillColor: catColor(plotType(feature?.properties)),
           fillOpacity: 0.55,
         }
       : { color: "#3c6e47", weight: 1, fillOpacity: 0 };
@@ -2975,6 +3007,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
           // Classified server-side so the map, the area report and the
           // highlight all read the same answer.
           category: r.category,
+          land_use: r.land_use,
+          land_bucket: r.land_bucket,
+          land_class: r.land_class,
           computed_area: computeAreaM2(r.geom),
           sides: computeSideDetails(r.geom),
         },
@@ -3811,6 +3846,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // Restore a previous sign-in before the first paint, so the Analyse button is
   // either there or not rather than appearing a moment later.
   loadSession();
+  loadLandUseNames();
   applyLang();
   applyAuthUi();
   initAddressCascade().catch((err) => console.error("address cascade failed:", err));
