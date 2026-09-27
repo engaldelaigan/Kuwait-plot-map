@@ -488,21 +488,6 @@ svg.leaflet-zoom-animated{will-change:transform;}
     color: #fff;
     cursor: pointer;
   }
-  #legend {
-    font-size: 11px;
-    color: #5b6b60;
-    display: flex;
-    align-items: center;
-    gap: 3px;
-  }
-  #legend i {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    display: inline-block;
-    margin-left: 7px;
-    box-shadow: 0 0 0 1.5px #fff;
-  }
   #snapWrap, #perpWrap {
     font-size: 12px;
     color: #5b6b60;
@@ -584,7 +569,6 @@ svg.leaflet-zoom-animated{will-change:transform;}
       max-width: none;
       flex: 1 1 100%;
     }
-    #legend { display: none; }
     #status { font-size: 11px; }
     /* The measuring options only matter once Measure is on, so they stay out
        of the way until then -- that's a whole row back on a phone. */
@@ -776,6 +760,33 @@ svg.leaflet-zoom-animated{will-change:transform;}
   #loginForm #loginCancel { background: var(--paper); color: var(--ink); border-color: var(--line); }
   #loginErr { margin: 0; font-size: 11px; color: #c0392b; min-height: 14px; }
 
+  /* Sits under the layer control, on the same side, since it explains what the
+     shading switch turns on. */
+  /* Clears Leaflet's zoom buttons, which sit top-left in both directions and
+     are drawn above this (their controls are z-index 800). Tucked under them
+     the first rows' counts were hidden. */
+  #legend {
+    position: absolute; top: 84px; z-index: 550;
+    background: rgba(246, 244, 238, 0.95);
+    border: 1px solid var(--line); border-radius: 8px;
+    padding: 7px 9px; font-size: 11px; line-height: 1.5;
+    max-height: calc(100% - 180px); overflow-y: auto;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+    left: 10px;
+  }
+  html[dir="rtl"] #legend { left: 10px; right: auto; }
+  #legend[hidden] { display: none; }
+  #legend .row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  #legend .sw {
+    width: 12px; height: 12px; border-radius: 3px; flex: none;
+    border: 1px solid rgba(0, 0, 0, 0.25);
+  }
+  #legend .n { color: #5b6b60; margin-inline-start: auto; padding-inline-start: 8px; }
+  @media (max-width: 760px) {
+    /* The panel becomes a bottom sheet on a phone; keep clear of it. */
+    #legend { font-size: 10px; max-height: 40%; bottom: auto; }
+  }
+
   #printArea { display: none; }
   @media print {
     #app { display: none !important; }
@@ -862,6 +873,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       <button id="drawUndo" type="button" data-i18n="undo">Undo</button>
       <button id="drawCancel" type="button" data-i18n="cancel">Cancel</button>
     </div>
+    <div id="legend" hidden></div>
     <div id="report" hidden></div>
     <div id="infoBox" hidden>
       <div class="sheet">
@@ -2841,23 +2853,101 @@ svg.leaflet-zoom-animated{will-change:transform;}
   const PLOT_LIMIT = 1000;
   let plotLayer = null;
 
+  // Only the categories actually on screen. The full list is sixteen entries,
+  // and in an ordinary residential view fourteen of them would be noise --
+  // a legend nobody reads explains nothing.
+  function updateLegend() {
+    const el = document.getElementById("legend");
+    if (!el) return;
+    if (!plotFill || !labelledFeatures.length) { el.hidden = true; return; }
+
+    const counts = new Map();
+    for (const f of labelledFeatures) {
+      const c = f.properties?.category ?? "unknown";
+      counts.set(c, (counts.get(c) ?? 0) + 1);
+    }
+    const rows = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat, n]) => {
+        const label = (CATEGORY_LABELS[cat] ?? CATEGORY_LABELS.unknown)[lang === "ar" ? 0 : 1];
+        return `<div class="row"><span class="sw" style="background:${catColor(cat)}"></span>` +
+               `<span>${label}</span><span class="n">${n.toLocaleString()}</span></div>`;
+      })
+      .join("");
+    el.innerHTML = rows;
+    el.hidden = false;
+  }
+
   // Plot shading can be switched off, which makes the basemap -- satellite
   // especially -- readable underneath. Outlines stay: without them there is
   // nothing to click. Hover still gives feedback when shading is off, as a
   // heavier outline rather than a green wash, so plots remain discoverable
   // without bringing back the colour the user turned off.
   let plotFill = storage.get("kwplots-fill") !== "off";
-  const plotStyle = () =>
+
+  // One colour per category. Residential keeps the green it always had, since
+  // it is the overwhelming majority and changing it would make every familiar
+  // view look wrong. The rest are spread around the wheel so neighbouring
+  // categories are told apart at a glance rather than by careful comparison,
+  // and the two that are not really plots -- setback strips and pathways --
+  // are deliberately near-invisible greys.
+  const CATEGORY_COLORS = {
+    residential:  "#a9c9ab",
+    other_nonres: "#f0a860",
+    park:         "#4caf50",
+    cemetery:     "#8d8299",
+    coop:         "#26a69a",
+    health:       "#e05a5a",
+    education:    "#4a90d9",
+    government:   "#2c4f8a",
+    religious:    "#9575cd",
+    industrial:   "#a1662f",
+    farm:         "#8fa33e",
+    shared:       "#d98cb3",
+    public_other: "#c9b28a",
+    setback:      "#cfd4d0",
+    pathway:      "#cfd4d0",
+    unknown:      "#b7bdb8",
+  };
+  const CATEGORY_LABELS = {
+    residential:  ["سكني", "Residential"],
+    other_nonres: ["غير سكني", "Non-residential"],
+    park:         ["حديقة", "Park"],
+    cemetery:     ["مقبرة", "Cemetery"],
+    coop:         ["جمعية", "Co-op"],
+    health:       ["مركز صحي", "Health"],
+    education:    ["مدرسة", "School"],
+    government:   ["حكومي", "Government"],
+    religious:    ["مسجد", "Mosque"],
+    industrial:   ["صناعي", "Industrial"],
+    farm:         ["مزرعة", "Farm"],
+    shared:       ["مشاع", "Shared"],
+    public_other: ["مباني عامة أخرى", "Other public"],
+    setback:      ["إرتداد", "Setback strip"],
+    pathway:      ["سكة", "Pathway"],
+    unknown:      ["غير محدد", "Unspecified"],
+  };
+  const catColor = (c) => CATEGORY_COLORS[c] ?? CATEGORY_COLORS.unknown;
+
+  const plotStyle = (feature) =>
     plotFill
-      ? { color: "#3c6e47", weight: 1, fillColor: "#a9c9ab", fillOpacity: 0.45 }
+      ? {
+          color: "#3c6e47",
+          weight: 1,
+          fillColor: catColor(feature?.properties?.category),
+          fillOpacity: 0.55,
+        }
       : { color: "#3c6e47", weight: 1, fillOpacity: 0 };
   const plotHoverStyle = () =>
-    plotFill ? { fillOpacity: 0.75 } : { weight: 2.5, fillOpacity: 0 };
+    plotFill ? { fillOpacity: 0.85 } : { weight: 2.5, fillOpacity: 0 };
 
   function setPlotFill(on) {
     plotFill = on;
     storage.set("kwplots-fill", on ? "on" : "off");
-    if (plotLayer) plotLayer.setStyle(plotStyle());
+    // setStyle with a function re-evaluates per feature, so each plot keeps
+    // its own colour instead of all of them collapsing to one.
+    if (plotLayer) plotLayer.setStyle(plotStyle);
+    updateLegend();
   }
 
   function rowsToFeatures(rows) {
@@ -2882,6 +2972,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
           street_en: r.street_en,
           title_ar: r.title_ar,
           title_en: r.title_en,
+          // Classified server-side so the map, the area report and the
+          // highlight all read the same answer.
+          category: r.category,
           computed_area: computeAreaM2(r.geom),
           sides: computeSideDetails(r.geom),
         },
@@ -2920,13 +3013,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
             if (!measuring) showPanel(feature.properties, lyr);
           });
           lyr.on("mouseover", () => lyr.setStyle(plotHoverStyle()));
-          lyr.on("mouseout", () => lyr.setStyle(plotStyle()));
+          lyr.on("mouseout", () => lyr.setStyle(plotStyle(feature)));
         },
       }
     ).addTo(map);
 
     labelledFeatures = features;
     updateParcelLabels();
+    updateLegend();
 
     if (matched) showPanel(matched.feature.properties, matched.lyr);
     return plotLayer;
