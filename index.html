@@ -176,6 +176,41 @@ svg.leaflet-zoom-animated{will-change:transform;}
     padding-inline-end: 4px;
   }
   #panel .sides-count { color: #5b6b60; font-weight: 400; }
+  /* Provenance for the one panel row that isn't the municipality's. Set small
+     and quiet: it has to be readable, but it shouldn't compete with the value
+     it qualifies. */
+  /* The correction control. Set off by a rule because it is the one part of
+     the panel that writes rather than reads. */
+  #panel .correction {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(0, 0, 0, 0.12);
+  }
+  #panel .correction dd { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  #panel .correction select,
+  #panel .correction input {
+    font: inherit; font-size: 11px; padding: 3px 4px;
+    border: 1px solid #c8cfc9; border-radius: 4px; background: #fff;
+    min-width: 0;
+  }
+  #panel .correction select { flex: 1 1 96px; }
+  #panel .correction input { flex: 1 1 100%; }
+  #panel .correction button {
+    font: inherit; font-size: 11px; padding: 3px 10px;
+    border: 1px solid #3c6e47; border-radius: 4px;
+    background: #3c6e47; color: #fff; cursor: pointer;
+  }
+  #panel .correction button:disabled { opacity: 0.6; cursor: default; }
+  #panel .fix-msg { color: #a33; font-size: 10px; }
+  #panel .src-note {
+    display: block;
+    color: #7b8a80;
+    font-size: 9.5px;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    margin-top: 1px;
+  }
   #panel dt {
     color: #5b6b60;
     font-size: 10px;
@@ -782,10 +817,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
     border: 1px solid rgba(0, 0, 0, 0.25);
   }
   #legend .n { color: #5b6b60; margin-inline-start: auto; padding-inline-start: 8px; }
+  #legend .legend-note {
+    margin-top: 5px; padding-top: 5px;
+    border-top: 1px solid rgba(0, 0, 0, 0.12);
+    color: #7b8a80; font-size: 9.5px; white-space: normal; max-width: 150px;
+  }
   @media (max-width: 760px) {
     /* The panel becomes a bottom sheet on a phone; keep clear of it. */
     #legend { font-size: 10px; max-height: 40%; bottom: auto; }
   }
+
+  /* Road edges switched off. The paths stay in the DOM and the snap targets
+     built from the same data stay live -- only the drawing goes. */
+  .edges-off .kerb-line { display: none; }
 
   #printArea { display: none; }
   @media print {
@@ -883,6 +927,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
           <li data-i18n="aboutPos">…</li>
           <li data-i18n="aboutMeasure">…</li>
           <li data-i18n="aboutGaps">…</li>
+          <li data-i18n="aboutOsm">…</li>
         </ul>
         <p class="stamp" id="dataStamp"></p>
         <button type="button" id="infoClose" data-i18n="close">Close</button>
@@ -940,6 +985,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
       close: "إغلاق",
       openInMaps: "فتح في خرائط جوجل",
       landUse: "الاستعمال",
+      osmSays: "على الطبيعة",
+      osmSource: "مصدر: OpenStreetMap (غير رسمي)",
+      legendOsm: (n) => `منها ${n.toLocaleString("ar-EG")} حسب OpenStreetMap`,
+      manualSource: "تصنيف يدوي",
+      correctType: "تصحيح التصنيف",
+      typeUnset: "— بدون —",
+      notePh: "ملاحظة (اختياري)",
+      save: "حفظ",
+      saveFailed: "تعذّر الحفظ",
+      signInFirst: "سجّل الدخول أولاً",
       aboutTitle: "عن هذه الخريطة",
       aboutBody:
         "نسخة غير رسمية من بيانات بلدية الكويت المتاحة للعموم. هذا الموقع ليس جهة رسمية، " +
@@ -953,6 +1008,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
       aboutGaps:
         "بعض القسائم بلا حدود أو بلا اسم أو بلا مساحة مسجّلة، وبعض الشوارع بلا أسماء في " +
         "بيانات المصدر.",
+      aboutOsm:
+        "القسائم غير المصنّفة لدى البلدية قد يظهر لها وصف «على الطبيعة» مصدره " +
+        "OpenStreetMap، وهو عمل تطوعي وليس تصنيفًا رسميًا. بيانات OpenStreetMap " +
+        "متاحة برخصة ODbL بواسطة مساهمي OpenStreetMap©.",
       updatedAt: (d) => `آخر تحديث للبيانات: ${d}`,
       signIn: "تسجيل الدخول",
       signOut: "خروج",
@@ -1042,6 +1101,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
       close: "Close",
       openInMaps: "Open in Google Maps",
       landUse: "Land use",
+      osmSays: "On the ground",
+      osmSource: "Source: OpenStreetMap (unofficial)",
+      legendOsm: (n) => `${n.toLocaleString()} of these from OpenStreetMap`,
+      manualSource: "Set by hand",
+      correctType: "Correct the type",
+      typeUnset: "— none —",
+      notePh: "Note (optional)",
+      save: "Save",
+      saveFailed: "Could not save",
+      signInFirst: "Sign in first",
       aboutTitle: "About this map",
       aboutBody:
         "An unofficial copy of Kuwait Municipality's public map data. This site is not an " +
@@ -1057,6 +1126,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       aboutGaps:
         "Some parcels have no boundary, name or recorded area, and many streets are unnamed " +
         "in the source data.",
+      aboutOsm:
+        "Where the municipality has classified nothing, a plot may show an \"on the ground\" " +
+        "description from OpenStreetMap. That is volunteer-contributed, not an official " +
+        "designation. OpenStreetMap data is © OpenStreetMap contributors, available under " +
+        "the Open Database Licence (ODbL).",
       updatedAt: (d) => `Data last updated: ${d}`,
       signIn: "Sign in",
       signOut: "Sign out",
@@ -1192,19 +1266,32 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // shading was left on; the overlayadd/remove handlers below do the work.
   const shadingLayer = L.layerGroup();
   if (storage.get("kwplots-fill") !== "off") shadingLayer.addTo(map);
+  // Same trick for the road-edge lines. They are drawn in red over every
+  // street, which on a busy area buries the basemap -- but they cannot simply
+  // be taken off the map, because the ruler snaps to them and they are what a
+  // setback is measured against. So this hides the DRAWING and leaves the data
+  // loaded: snapping and measuring carry on working with the lines switched
+  // off, which is the only version of this toggle that isn't a trap.
+  const edgeLinesLayer = L.layerGroup();
+  const edgesOn = storage.get("kwplots-edges") !== "off";
+  if (edgesOn) edgeLinesLayer.addTo(map);
+  // Apply the remembered choice straight away, before any kerbs are drawn,
+  // so turning them off doesn't come back on at every reload.
+  map.getContainer().classList.toggle("edges-off", !edgesOn);
   L.control
     .layers(
       { "OpenStreetMap": tiles, Satellite: satellite },
-      // The only overlay toggle is plot shading.
+      // Two overlay toggles, both of them presentation-only.
       //
-      // The kerb layer stays on permanently -- it is what the ruler snaps to and
-      // what the setback is measured against, so it is not optional. Block
-      // boundaries and street centrelines are gone entirely: both were
+      // Block boundaries and street centrelines are gone entirely: both were
       // measured against in the belief they marked the street, and neither
       // does (a block boundary is a planning line ~100 m from any plot, a
       // centreline sits half a carriageway past the kerb). With nothing left
       // to switch them on, loading them was pure cost.
-      { "تظليل القسائم · Plot shading": shadingLayer },
+      {
+        "تظليل القسائم · Plot shading": shadingLayer,
+        "خطوط الارتداد · Road edges": edgeLinesLayer,
+      },
       // Expanded is handy on a desktop; on a phone it covers a third of the
       // map, so it collapses to an icon there.
       { collapsed: window.innerWidth <= 760 }
@@ -2448,6 +2535,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
   function clearSelection() {
     sideLabels.clearLayers();
     if (selectedOutline) { map.removeLayer(selectedOutline); selectedOutline = null; }
+    // Drop the hover shading too. mouseout would do it eventually, but after
+    // clicking a plot to let go of it the pointer is still sitting on it, so
+    // without this the plot stays lit as though it were still chosen.
+    if (selectedLayer && selectedLayer.feature && plotLayer?.hasLayer?.(selectedLayer)) {
+      selectedLayer.setStyle(plotStyle(selectedLayer.feature));
+    }
     panelEl.classList.remove("visible");
     panelEl.innerHTML = "";
     selectedProps = null;
@@ -2630,14 +2723,111 @@ svg.leaflet-zoom-animated{will-change:transform;}
     } catch { /* the panel falls back to the bucket label */ }
   }
 
+  // The other panel fields come from the municipality; this one comes from
+  // whoever last edited the map. A name is free text from a stranger, so it is
+  // escaped before it goes anywhere near innerHTML.
+  const esc = (s) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
   function landUseText(props) {
+    // A hand correction is shown ahead of the municipality's own code, and
+    // says so, because disagreeing with the official record silently would be
+    // the one way this feature could mislead.
+    if (props.manual_bucket) {
+      const label = TYPE_LABELS[props.manual_bucket]?.[lang === "ar" ? 0 : 1] ?? props.manual_bucket;
+      const note = props.manual_note ? ` &mdash; ${esc(props.manual_note)}` : "";
+      return `${esc(label)}${note}<span class="src-note">${t("manualSource")}</span>`;
+    }
     const exact = props.land_use != null ? landUseNames?.get(props.land_use) : null;
     if (exact) return exact;
+    // With no land-use code, the parcel's kind is the next best answer -- and
+    // it is more specific than the colour it gets. A mosque and a ministry are
+    // both coloured "government"; there is no reason to tell the reader
+    // "government" when the source said "religious building".
+    const kind = KIND_LABELS[props.category];
+    if (kind) return kind[lang === "ar" ? 0 : 1];
     const type = plotType(props);
-    // Gardens are recognised without a land-use code, so name the type.
-    if (type === "gardens" || type === "unknown") return TYPE_LABELS[type][lang === "ar" ? 0 : 1];
     return TYPE_LABELS[type]?.[lang === "ar" ? 0 : 1] ?? "&mdash;";
   }
+
+  // The parcel kinds, named as the municipality names them. Only the ones that
+  // say something a land use wouldn't: 'residential' and 'other_nonres' are
+  // left out because they come from the untitled-parcel guess, not from a
+  // statement about the parcel.
+  const KIND_LABELS = {
+    health: ["مبنى صحي", "Health building"],
+    education: ["مبنى تعليمي", "Educational building"],
+    government: ["مبنى حكومي", "Government building"],
+    religious: ["مسجد", "Religious building"],
+    public_other: ["مبنى عام", "Public building"],
+    coop: ["جمعية", "Co-operative"],
+    industrial: ["مبنى صناعي", "Industrial building"],
+    farm: ["مزرعة", "Farm"],
+    park: ["حديقة", "Park"],
+    cemetery: ["مقبرة", "Cemetery"],
+    setback: ["إرتداد", "Setback strip"],
+    pathway: ["سكة", "Pathway"],
+    shared: ["مشاع", "Shared parcel"],
+  };
+
+  // The OpenStreetMap row, shown only where it adds something. For مجمع
+  // الصالحية this is the only line in the panel that answers the question --
+  // KMMaps, Classifcation and EsriNewParcel all have nothing on it.
+  //
+  // Labelled as OSM rather than blended into the land-use row, because it is a
+  // different kind of claim: what someone mapped as being there, not what the
+  // municipality designated the land for. Those can disagree, and when they do
+  // the reader needs to know which they are looking at.
+  function osmRow(props) {
+    if (!props.osm_name && !props.osm_kind) return "";
+    const kind = props.osm_kind ? OSM_KIND_LABELS[props.osm_kind] : null;
+    // Escape the parts, then join -- escaping the joined string would eat the
+    // separator entity and print a literal "&mdash;".
+    const shown = [props.osm_name, kind?.[lang === "ar" ? 0 : 1] ?? props.osm_kind]
+      .filter(Boolean).map(esc).join(" &mdash; ");
+    return `<div><dt>${t("osmSays")}</dt><dd>${shown}` +
+           `<span class="src-note">${t("osmSource")}</span></dd></div>`;
+  }
+
+  // Only the tags the sync keeps. An unmapped tag falls back to its raw form
+  // rather than being dropped: "leisure=sports_centre" is still readable, and
+  // silently hiding data we hold is worse than showing it untranslated.
+  const OSM_KIND_LABELS = {
+    "shop=mall": ["مجمع تجاري", "Shopping mall"],
+    "shop=department_store": ["متجر كبير", "Department store"],
+    "shop=supermarket": ["سوق مركزي", "Supermarket"],
+    "shop=car": ["معرض سيارات", "Car dealer"],
+    "amenity=bank": ["بنك", "Bank"],
+    "amenity=marketplace": ["سوق", "Marketplace"],
+    "amenity=fuel": ["محطة وقود", "Petrol station"],
+    "amenity=pharmacy": ["صيدلية", "Pharmacy"],
+    "amenity=school": ["مدرسة", "School"],
+    "amenity=kindergarten": ["روضة", "Kindergarten"],
+    "amenity=college": ["كلية", "College"],
+    "amenity=university": ["جامعة", "University"],
+    "amenity=hospital": ["مستشفى", "Hospital"],
+    "amenity=clinic": ["عيادة", "Clinic"],
+    "amenity=doctors": ["عيادة", "Doctor's surgery"],
+    "amenity=place_of_worship": ["مسجد", "Place of worship"],
+    "amenity=restaurant": ["مطعم", "Restaurant"],
+    "amenity=cafe": ["مقهى", "Café"],
+    "amenity=police": ["مخفر شرطة", "Police station"],
+    "amenity=fire_station": ["إطفاء", "Fire station"],
+    "amenity=embassy": ["سفارة", "Embassy"],
+    "amenity=grave_yard": ["مقبرة", "Cemetery"],
+    "tourism=hotel": ["فندق", "Hotel"],
+    "office=government": ["جهة حكومية", "Government office"],
+    "office=company": ["شركة", "Company"],
+    "leisure=park": ["حديقة", "Park"],
+    "leisure=garden": ["حديقة", "Garden"],
+    "building=commercial": ["مبنى تجاري", "Commercial building"],
+    "building=retail": ["مبنى تجاري", "Retail building"],
+    "building=warehouse": ["مخزن", "Warehouse"],
+    "building=industrial": ["مبنى صناعي", "Industrial building"],
+    "building=apartments": ["عمارة سكنية", "Apartment building"],
+    "landuse=industrial": ["منطقة صناعية", "Industrial land"],
+  };
 
   function mapsLink(props) {
     const c = plotCentre(props.geom);
@@ -2685,20 +2875,84 @@ svg.leaflet-zoom-animated{will-change:transform;}
       // precisely the ones where this matters -- it is the only place their
       // classification is visible.
       row(t("landUse"), landUseText(props)) +
+      osmRow(props) +
       // Filled in below: it needs a round trip, and the panel should not wait.
       `<div><dt>${t("setback")}</dt><dd id="setbackVal">…</dd></div>` +
       `<div><dt>${sidesLabel}</dt>${sidesHtml}</div>` +
       `<dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button>` +
       mapsLink(props) +
-      `</dd>`;
+      `</dd>` +
+      correctionUi(props);
     panelEl.classList.add("visible");
     showSideLabels(props, layer);
     document.getElementById("printBtn").addEventListener("click", () => printPlot(props));
+    wireCorrection(props);
     loadSetback(props.global_id);
     // With الارتداد switched on, selecting a plot draws its setbacks straight
     // away -- the point of leaving the mode on is not having to press the
     // button again for every plot.
     if (setbackMode) autoSetback();
+  }
+
+  // ---- Correcting a plot by hand -----------------------------------------
+  // Shown only when signed in. The real gate is the grant on set_plot_type,
+  // which is revoked from anon -- this just keeps the panel uncluttered for
+  // everyone else.
+  //
+  // It exists because the data ran out: after every municipal layer and
+  // OpenStreetMap, around 62,000 ordinary parcels still have no published
+  // classification, and some of them are obvious to anyone who knows the city.
+  const CORRECTABLE = ["residential", "investment", "mixed", "commercial",
+                       "industrial", "storage", "government", "gardens", "other"];
+
+  function correctionUi(props) {
+    if (!session) return "";
+    const cur = props.manual_bucket ?? "";
+    const opts = [`<option value="">${t("typeUnset")}</option>`]
+      .concat(CORRECTABLE.map((k) =>
+        `<option value="${k}"${k === cur ? " selected" : ""}>` +
+        `${TYPE_LABELS[k][lang === "ar" ? 0 : 1]}</option>`))
+      .join("");
+    return `<div class="correction"><dt>${t("correctType")}</dt><dd>` +
+      `<select id="fixType">${opts}</select>` +
+      `<input id="fixNote" type="text" maxlength="200" placeholder="${t("notePh")}" ` +
+      `value="${esc(props.manual_note ?? "")}">` +
+      `<button id="fixSave" type="button">${t("save")}</button>` +
+      `<span id="fixMsg" class="fix-msg"></span></dd></div>`;
+  }
+
+  function wireCorrection(props) {
+    const btn = document.getElementById("fixSave");
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+      const sel = document.getElementById("fixType");
+      const note = document.getElementById("fixNote");
+      const msg = document.getElementById("fixMsg");
+      btn.disabled = true;
+      msg.textContent = "…";
+      try {
+        await authRpc("set_plot_type", {
+          gis: props.global_id,
+          bucket: sel.value || null,
+          note: note.value.trim() || null,
+        });
+        // Update the plot in place rather than refetching the viewport: a
+        // reload would drop the selection and scroll position, and the server
+        // has already accepted exactly these values.
+        props.manual_bucket = sel.value || null;
+        props.manual_note = note.value.trim() || null;
+        if (selectedLayer?.feature) {
+          selectedLayer.feature.properties.manual_bucket = props.manual_bucket;
+          selectedLayer.feature.properties.manual_note = props.manual_note;
+          selectedLayer.setStyle(plotStyle(selectedLayer.feature));
+        }
+        updateLegend();
+        showPanel(props, selectedLayer);
+      } catch (err) {
+        msg.textContent = /401|403/.test(String(err.message)) ? t("signInFirst") : t("saveFailed");
+        btn.disabled = false;
+      }
+    });
   }
 
   // Distance from the plot to the nearest paved road, measured against the
@@ -2889,9 +3143,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
     if (!plotFill || !labelledFeatures.length) { el.hidden = true; return; }
 
     const counts = new Map();
+    let osmCount = 0;
     for (const f of labelledFeatures) {
       const t = plotType(f.properties);
       counts.set(t, (counts.get(t) ?? 0) + 1);
+      if (isOsmDerived(f.properties)) osmCount++;
     }
     const rows = [...counts.entries()]
       .sort((a, b) => b[1] - a[1])
@@ -2901,7 +3157,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
                `<span>${label}</span><span class="n">${n.toLocaleString()}</span></div>`;
       })
       .join("");
-    el.innerHTML = rows;
+    // The counts above mix two kinds of evidence. Say how much of what is on
+    // screen is coloured on a volunteer's say-so rather than the
+    // municipality's, so the legend isn't quietly overstating its authority.
+    el.innerHTML = rows + (osmCount ? `<div class="legend-note">${t("legendOsm", osmCount)}</div>` : "");
     el.hidden = false;
   }
 
@@ -2942,6 +3201,22 @@ svg.leaflet-zoom-animated{will-change:transform;}
   const MAIN_TYPES = ["residential", "investment", "mixed", "commercial",
                       "industrial", "storage", "government", "gardens"];
 
+  // What the parcel's own kind implies when no land use was ever recorded.
+  // The municipality states these outright -- they are not a guess -- so they
+  // are a step ABOVE OpenStreetMap in the order of preference, and below a
+  // real land-use code only because a code is more specific.
+  //
+  // Farms, setbacks, pathways and shared parcels share the "other" colour:
+  // none is one of the eight, and the panel names each one exactly.
+  const KIND_TYPE = {
+    health: "government", education: "government", government: "government",
+    religious: "government", public_other: "government", coop: "government",
+    industrial: "industrial",
+    park: "gardens", cemetery: "other",
+    farm: "other", setback: "other", pathway: "other", shared: "other",
+    other_nonres: "other",
+  };
+
   // Which colour a plot gets. Gardens first: there is no garden among the 55
   // land-use codes, so they are recognised by the parcel's own classification
   // or the municipality's Class field, and that should win over whatever use
@@ -2954,11 +3229,29 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // a gap in our data as a fact about the plot.
   function plotType(p) {
     if (!p) return "unknown";
+    // A correction someone made by hand outranks everything: it is the only
+    // source where a person actually looked at the plot.
+    if (p.manual_bucket) return p.manual_bucket;
     if (p.category === "park" || p.land_class === 2) return "gardens";
     if (p.land_bucket && MAIN_TYPES.includes(p.land_bucket)) return p.land_bucket;
     if (p.land_bucket === "other" || p.land_use != null) return "other";
+    // No land use -- but the parcel's own kind often says plenty, and we were
+    // throwing it away. A parcel the municipality files as "Governmental
+    // Parcel - Religious Building" was rendering as "not classified", and
+    // 39% of the unclassified pile is exactly that: 27,655 government
+    // parcels and 13,804 farms whose type we already hold in `subtype`.
+    const fromKind = KIND_TYPE[p.category];
+    if (fromKind) return fromKind;
+    // Nobody official has classified this one. OpenStreetMap sometimes has,
+    // and the server only fills osm_bucket where land_use is null, so this
+    // can never contradict the municipality -- only speak where it is silent.
+    // The panel names the source, so the colour is never the whole claim.
+    if (p.osm_bucket && MAIN_TYPES.includes(p.osm_bucket)) return p.osm_bucket;
     return "unknown";
   }
+  // True where the colour came from OpenStreetMap rather than the municipality.
+  const isOsmDerived = (p) =>
+    !!p && p.land_use == null && p.land_class !== 2 && p.category !== "park" && !!p.osm_bucket;
   const catColor = (t) => TYPE_COLORS[t] ?? TYPE_COLORS.unknown;
 
   const plotStyle = (feature) =>
@@ -2972,6 +3265,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
       : { color: "#3c6e47", weight: 1, fillOpacity: 0 };
   const plotHoverStyle = () =>
     plotFill ? { fillOpacity: 0.85 } : { weight: 2.5, fillOpacity: 0 };
+
+  // Hides the red road-edge lines without unloading them. A CSS class on the
+  // map container rather than removing layers, so the snap targets built from
+  // the same data stay live and the ruler keeps snapping to the kerb.
+  function setEdgeLines(on) {
+    storage.set("kwplots-edges", on ? "on" : "off");
+    map.getContainer().classList.toggle("edges-off", !on);
+  }
 
   function setPlotFill(on) {
     plotFill = on;
@@ -3010,6 +3311,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
           land_use: r.land_use,
           land_bucket: r.land_bucket,
           land_class: r.land_class,
+          // OpenStreetMap's reading, carried separately from the
+          // municipality's and only ever used where theirs is silent.
+          osm_name: r.osm_name,
+          osm_kind: r.osm_kind,
+          osm_bucket: r.osm_bucket,
+          manual_bucket: r.manual_bucket,
+          manual_note: r.manual_note,
           computed_area: computeAreaM2(r.geom),
           sides: computeSideDetails(r.geom),
         },
@@ -3045,7 +3353,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
           }
           lyr.on("click", () => {
             plotJustClicked = true;
-            if (!measuring) showPanel(feature.properties, lyr);
+            if (measuring) return;
+            // Clicking the selected plot again lets go of it. Without this the
+            // only ways out were Clear or finding empty map to click, and on a
+            // dense block there isn't any empty map to click.
+            if (selectedProps && selectedProps.global_id === feature.properties.global_id) {
+              clearSelection();
+              return;
+            }
+            showPanel(feature.properties, lyr);
           });
           lyr.on("mouseover", () => lyr.setStyle(plotHoverStyle()));
           lyr.on("mouseout", () => lyr.setStyle(plotStyle(feature)));
@@ -3060,9 +3376,6 @@ svg.leaflet-zoom-animated{will-change:transform;}
     if (matched) showPanel(matched.feature.properties, matched.lyr);
     return plotLayer;
   }
-
-  const PLOT_COLS =
-    "global_id,parcel_no,paci_no,block_no,neighborhood_ar,neighborhood_en,measured_area,shape_length,house_no,street_ar,street_en,title_ar,title_en,geom";
 
   async function api(path) {
     const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
@@ -3145,7 +3458,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
       return authRpc(fn, payload, true);
     }
     if (!res.ok) throw new Error(`${fn} failed: ${res.status}`);
-    return res.json();
+    // A void-returning function replies 204 with no body, and res.json()
+    // throws on that. Callers that expect rows still get them.
+    if (res.status === 204) return null;
+    return res.json().catch(() => null);
   }
 
   // Loads only what's inside the current view, via the PostGIS bbox function.
@@ -3212,14 +3528,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
             snapSegs.push({ a: ring[i], b: ring[i + 1], kind: "kerb" });
     }
 
+    // className tags the rendered paths so the Road edges toggle can hide them
+    // in CSS. display:none also stops them taking pointer events, so a hidden
+    // line can't show its street-name tooltip on hover either.
     L.geoJSON(
       { type: "FeatureCollection", features: other },
-      { style: { color: "#95a5a6", weight: 1, fill: false, opacity: 0.5 }, interactive: false }
+      {
+        style: { color: "#95a5a6", weight: 1, fill: false, opacity: 0.5, className: "kerb-line" },
+        interactive: false,
+      }
     ).addTo(kerbLayer);
     L.geoJSON(
       { type: "FeatureCollection", features: roads },
       {
-        style: { color: "#c0392b", weight: 1.5, fill: false, opacity: 0.85 },
+        style: { color: "#c0392b", weight: 1.5, fill: false, opacity: 0.85, className: "kerb-line" },
         onEachFeature: (f, lyr) => {
           if (f.properties.name_ar) lyr.bindTooltip(f.properties.name_ar);
         },
@@ -3910,10 +4232,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
     }, 350);
   });
 
-  // The kerb layer is always on and loads with everything else. The one
-  // overlay toggle left is plot shading.
-  map.on("overlayadd", (e) => { if (e.layer === shadingLayer) setPlotFill(true); });
-  map.on("overlayremove", (e) => { if (e.layer === shadingLayer) setPlotFill(false); });
+  // The kerb layer is always on and loads with everything else; both overlay
+  // toggles change what is drawn, not what is loaded.
+  map.on("overlayadd", (e) => {
+    if (e.layer === shadingLayer) setPlotFill(true);
+    if (e.layer === edgeLinesLayer) setEdgeLines(true);
+  });
+  map.on("overlayremove", (e) => {
+    if (e.layer === shadingLayer) setPlotFill(false);
+    if (e.layer === edgeLinesLayer) setEdgeLines(false);
+  });
 
   // Installable app. Registered only over HTTPS (or localhost) -- browsers
   // refuse service workers on plain http, and the local dev server uses it.
