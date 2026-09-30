@@ -176,6 +176,30 @@ svg.leaflet-zoom-animated{will-change:transform;}
     padding-inline-end: 4px;
   }
   #panel .sides-count { color: #5b6b60; font-weight: 400; }
+  /* Each side is a pick target. Full width and left-aligned so the list still
+     reads as a list rather than a row of buttons. */
+  #panel .side-row {
+    display: block; width: 100%; text-align: start;
+    font: inherit; color: inherit;
+    background: none; border: 1px solid transparent; border-radius: 4px;
+    padding: 1px 5px; margin: 0; cursor: pointer;
+  }
+  #panel .side-row:hover { background: #eef3ef; }
+  #panel .side-row.picked {
+    background: #e3edf9; border-color: #1565c0; color: #0d3c78;
+  }
+  #panel .side-total {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    margin-top: 5px; padding-top: 5px;
+    border-top: 1px solid rgba(0, 0, 0, 0.12);
+  }
+  #panel .side-total b { color: #0d3c78; font-size: 13px; }
+  #panel .side-total-n { color: #5b6b60; font-size: 10px; }
+  #panel .side-total button {
+    font: inherit; font-size: 10px; margin-inline-start: auto;
+    background: none; border: none; color: #5b6b60;
+    text-decoration: underline; cursor: pointer; padding: 0;
+  }
   /* Provenance for the one panel row that isn't the municipality's. Set small
      and quiet: it has to be readable, but it shouldn't compete with the value
      it qualifies. */
@@ -840,13 +864,25 @@ svg.leaflet-zoom-animated{will-change:transform;}
       color: #000;
       font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
     }
-    #printArea h1 { font-size: 17pt; margin: 0 0 2px; }
-    #printArea .sub { margin: 0 0 14px; color: #444; font-size: 11pt; }
-    #printArea table { border-collapse: collapse; width: 100%; font-size: 10pt; }
-    #printArea .meta th {
-      text-align: left; width: 18%; color: #444; font-weight: 600; padding: 4px 6px 4px 0;
+    #printArea h1 {
+      font-size: 16pt; margin: 0 0 8px; padding-bottom: 6px;
+      border-bottom: 2px solid #2f5d3a;
     }
-    #printArea .meta td { padding: 4px 14px 4px 0; }
+    #printArea table { border-collapse: collapse; font-size: 10pt; }
+    /* Facts as a grid of small label/value cells rather than a four-column
+       table. The table could not wrap sensibly and left long street names
+       squashed into an 18% column. */
+    #printArea .meta {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 7px 16px; margin: 0 0 12px;
+    }
+    #printArea .meta .cell { break-inside: avoid; }
+    #printArea .meta dt {
+      font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.4px;
+      color: #6a746d; margin: 0 0 1px;
+    }
+    #printArea .meta dd { margin: 0; font-size: 10.5pt; font-weight: 600; }
+    #printArea .meta dd .src-note { display: block; font-size: 7pt; font-weight: 400; color: #6a746d; }
     #printArea .mono { font-family: ui-monospace, Consolas, monospace; font-size: 8.5pt; }
     #printArea .diagram { margin: 16px 0; text-align: center; }
     /* The printed map: tiles positioned absolutely, overlay on top. */
@@ -862,12 +898,38 @@ svg.leaflet-zoom-animated{will-change:transform;}
       position: absolute; right: 3px; bottom: 2px; font-size: 7pt; color: #333;
       background: rgba(255,255,255,0.75); padding: 0 3px;
     }
-    #printArea .sides { width: 62%; margin-top: 4px; } /* three columns now */
-    #printArea .note { margin: 6px 0 0; font-size: 8.5pt; color: #777; }
-    #printArea .sides th, #printArea .sides td {
-      border: 1px solid #999; padding: 3px 8px; text-align: left;
+    /* Side lists run in columns of 12, side by side, so a many-sided parcel is
+       a couple of short columns instead of a ribbon down a second page. */
+    #printArea .sides-wrap {
+      display: flex; gap: 14px; align-items: flex-start;
+      flex-wrap: wrap; margin-top: 10px;
+      /* Centred rather than flush to the margin: one column left two thirds of
+         the row empty, which read as a layout fault rather than a short list. */
+      justify-content: center;
     }
-    #printArea .foot { margin-top: 18px; font-size: 8.5pt; color: #555; }
+    #printArea .sides { flex: 0 1 auto; min-width: 150px; break-inside: avoid; }
+    #printArea .sides th {
+      background: #eef2ee; font-size: 8pt; text-transform: uppercase;
+      letter-spacing: 0.3px; color: #44504a;
+    }
+    #printArea .sides th, #printArea .sides td {
+      border: 1px solid #c3cbc5; padding: 2.5px 9px; text-align: start;
+      font-variant-numeric: tabular-nums;
+    }
+    /* Rows the reader picked on screen, marked so the printed total can be
+       checked against the list it came from. */
+    #printArea .sides tr.picked td {
+      background: #e3edf9; font-weight: 700; color: #0d3c78;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    #printArea .picked-total {
+      margin: 10px 0 0; font-size: 10.5pt; color: #0d3c78;
+    }
+    #printArea .note { margin: 6px 0 0; font-size: 8.5pt; color: #777; }
+    #printArea .foot {
+      margin-top: 16px; padding-top: 6px; border-top: 1px solid #ccd2cd;
+      font-size: 8pt; color: #555;
+    }
     @page { margin: 14mm; }
   }
 </style>
@@ -988,6 +1050,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       osmSays: "على الطبيعة",
       osmSource: "مصدر: OpenStreetMap (غير رسمي)",
       legendOsm: (n) => `منها ${n.toLocaleString("ar-EG")} حسب OpenStreetMap`,
+      sidesPicked: (n) => (n === 1 ? "ضلع واحد" : n === 2 ? "ضلعان" : `${n.toLocaleString("ar-EG")} أضلاع`),
+      clearPicks: "إلغاء",
       manualSource: "تصنيف يدوي",
       correctType: "تصحيح التصنيف",
       typeUnset: "— بدون —",
@@ -1104,6 +1168,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       osmSays: "On the ground",
       osmSource: "Source: OpenStreetMap (unofficial)",
       legendOsm: (n) => `${n.toLocaleString()} of these from OpenStreetMap`,
+      sidesPicked: (n) => `${n} side${n === 1 ? "" : "s"}`,
+      clearPicks: "Clear",
       manualSource: "Set by hand",
       correctType: "Correct the type",
       typeUnset: "— none —",
@@ -2534,6 +2600,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // Deselect: hides the panel, the red outline and the side numbers.
   function clearSelection() {
     sideLabels.clearLayers();
+    clearSidePicks();
     if (selectedOutline) { map.removeLayer(selectedOutline); selectedOutline = null; }
     // Drop the hover shading too. mouseout would do it eventually, but after
     // clicking a plot to let go of it the pointer is still sitting on it, so
@@ -2840,16 +2907,26 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }
 
   function showPanel(props, layer) {
+    // Picks belong to one parcel. showPanel is also how the panel re-renders
+    // in place (language switch, a saved correction), so only a genuine change
+    // of plot drops them.
+    if (selectedProps && selectedProps.global_id !== props.global_id) clearSidePicks();
     selectedProps = props;
     selectedLayer = layer;
     const pick = (ar, en) => (lang === "ar" ? ar || en : en || ar);
     const nbh = pick(props.neighborhood_ar, props.neighborhood_en);
     const street = pick(props.street_ar, props.street_en);
     const title = pick(props.title_ar, props.title_en);
+    // Sides are pickable: click several and the panel totals them. Measuring a
+    // frontage that runs along three edges, or the two sides a wall will
+    // follow, otherwise means reading numbers off the list and adding them up
+    // by hand -- which is exactly the arithmetic this tool exists to avoid.
     const sidesHtml = props.sides.length
       ? `<dd class="sides-list" style="font-weight:400;">${props.sides
-          .map((s) => `<b>${s.n}</b> &mdash; ${fmtSide(s.length)}`)
-          .join("<br>")}</dd>`
+          .map((s) =>
+            `<button type="button" class="side-row" data-n="${s.n}">` +
+            `<b>${s.n}</b> &mdash; ${fmtSide(s.length)}</button>`)
+          .join("")}</dd>`
       : "<dd>&mdash;</dd>";
     // Worth saying how many there are when the list is scrolled: otherwise a
     // 93-sided parcel looks like a handful of sides that stop abruptly.
@@ -2878,7 +2955,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       osmRow(props) +
       // Filled in below: it needs a round trip, and the panel should not wait.
       `<div><dt>${t("setback")}</dt><dd id="setbackVal">…</dd></div>` +
-      `<div><dt>${sidesLabel}</dt>${sidesHtml}</div>` +
+      `<div><dt>${sidesLabel}</dt>${sidesHtml}` +
+      `<dd id="sideTotal" class="side-total" hidden></dd></div>` +
       `<dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button>` +
       mapsLink(props) +
       `</dd>` +
@@ -2887,11 +2965,76 @@ svg.leaflet-zoom-animated{will-change:transform;}
     showSideLabels(props, layer);
     document.getElementById("printBtn").addEventListener("click", () => printPlot(props));
     wireCorrection(props);
+    wireSidePicking(props);
     loadSetback(props.global_id);
     // With الارتداد switched on, selecting a plot draws its setbacks straight
     // away -- the point of leaving the mode on is not having to press the
     // button again for every plot.
     if (setbackMode) autoSetback();
+  }
+
+  // ---- Adding up sides ----------------------------------------------------
+  // Pick several sides and the panel totals them, with the chosen edges drawn
+  // on the map so the number on screen is visibly the boundary you meant.
+  //
+  // The picks are keyed to the plot and cleared whenever the selection changes,
+  // because a total carried over from a different parcel would be a plausible
+  // wrong answer rather than an obvious one.
+  const pickedSides = new Set();
+  const pickedLayer = L.layerGroup().addTo(map);
+
+  function clearSidePicks() {
+    pickedSides.clear();
+    pickedLayer.clearLayers();
+  }
+
+  function wireSidePicking(props) {
+    const totalEl = document.getElementById("sideTotal");
+    for (const btn of panelEl.querySelectorAll(".side-row")) {
+      const n = Number(btn.dataset.n);
+      if (pickedSides.has(n)) btn.classList.add("picked");
+      btn.addEventListener("click", () => {
+        if (pickedSides.has(n)) pickedSides.delete(n);
+        else pickedSides.add(n);
+        btn.classList.toggle("picked", pickedSides.has(n));
+        redrawPicks(props);
+        renderSideTotal(props, totalEl);
+      });
+    }
+    redrawPicks(props);
+    renderSideTotal(props, totalEl);
+  }
+
+  function redrawPicks(props) {
+    pickedLayer.clearLayers();
+    for (const s of props.sides) {
+      if (!pickedSides.has(s.n) || !s.a || !s.b) continue;
+      L.polyline([[s.a[1], s.a[0]], [s.b[1], s.b[0]]], {
+        color: "#1565c0", weight: 6, opacity: 0.75,
+        // Decoration only: left interactive it would sit on the plot's own
+        // boundary and swallow clicks, the way the red outline once did.
+        interactive: false,
+      }).addTo(pickedLayer);
+    }
+  }
+
+  function renderSideTotal(props, el) {
+    if (!el) return;
+    if (!pickedSides.size) { el.hidden = true; el.innerHTML = ""; return; }
+    const chosen = props.sides.filter((s) => pickedSides.has(s.n));
+    const total = chosen.reduce((sum, s) => sum + s.length, 0);
+    // Same rounding as the individual sides, so the total cannot disagree with
+    // the numbers it is visibly the sum of.
+    el.innerHTML =
+      `<span class="side-total-n">${t("sidesPicked", chosen.length)}</span>` +
+      `<b>${fmtSide(total)}</b>` +
+      `<button type="button" id="sideClear">${t("clearPicks")}</button>`;
+    el.hidden = false;
+    document.getElementById("sideClear").addEventListener("click", () => {
+      clearSidePicks();
+      for (const b of panelEl.querySelectorAll(".side-row")) b.classList.remove("picked");
+      renderSideTotal(props, el);
+    });
   }
 
   // ---- Correcting a plot by hand -----------------------------------------
@@ -3022,22 +3165,54 @@ svg.leaflet-zoom-animated{will-change:transform;}
     for (let i = 0; i < px.length - 1; i++) { cx += px[i][0]; cy += px[i][1]; }
     cx /= px.length - 1; cy /= px.length - 1;
 
-    // Side number and length, pushed outward from the centre so they sit clear
-    // of the boundary rather than on top of it.
-    const sideLabels = (props.sides ?? [])
+    // How much each label can say depends on how much room there is.
+    //
+    // The old sheet always drew three lines per side -- number, length and
+    // setback. On the 24-sided parcel in القبلة that put seventy-two lines of
+    // text along a boundary a few hundred pixels round, and the map became an
+    // unreadable smear. The lengths are in the table below regardless, so when
+    // the sides are packed tightly the map keeps only what the table cannot
+    // give: which edge is which.
+    //
+    // The threshold is the actual spacing between labels on the page, not a
+    // guess at the side count: four long sides and forty short ones are very
+    // different pictures.
+    const sides = props.sides ?? [];
+    let minGap = Infinity;
+    for (let i = 0; i < sides.length && px[i] && px[i + 1]; i++) {
+      minGap = Math.min(minGap, Math.hypot(px[i + 1][0] - px[i][0], px[i + 1][1] - px[i][1]));
+    }
+    const detail = minGap >= 46 ? "full" : minGap >= 20 ? "number" : "none";
+
+    const sideLabels = detail === "none" ? "" : sides
       .map((s, i) => {
         if (!px[i] || !px[i + 1]) return "";
         const mx = (px[i][0] + px[i + 1][0]) / 2;
         const my = (px[i][1] + px[i + 1][1]) / 2;
         const dx = mx - cx, dy = my - cy;
         const len = Math.hypot(dx, dy) || 1;
-        const lx = mx + (dx / len) * 22, ly = my + (dy / len) * 22;
+        const out = detail === "full" ? 22 : 13;
+        const lx = mx + (dx / len) * out, ly = my + (dy / len) * out;
         const sb = setbacks?.get(s.n);
+        if (detail === "number") {
+          return `<g text-anchor="middle"><text x="${lx}" y="${ly}" font-size="10" font-weight="700" fill="#17211b" stroke="#fff" stroke-width="2.5" paint-order="stroke">${s.n}</text></g>`;
+        }
         return `<g text-anchor="middle">
           <text x="${lx}" y="${ly}" font-size="13" font-weight="700" fill="#17211b" stroke="#fff" stroke-width="3" paint-order="stroke">${s.n}</text>
           <text x="${lx}" y="${ly + 13}" font-size="11" fill="#1d2b22" stroke="#fff" stroke-width="3" paint-order="stroke">${fmtSide(s.length).replace("&mdash;", "—")}</text>
           ${sb == null ? "" : `<text x="${lx}" y="${ly + 26}" font-size="10.5" font-weight="700" fill="#c0392b" stroke="#fff" stroke-width="3" paint-order="stroke">${sb.toFixed(2)} m</text>`}
         </g>`;
+      })
+      .join("");
+
+    // Sides picked on screen are drawn on the printed plan in the same blue,
+    // so the total printed underneath is visibly the boundary it refers to.
+    const pickedOnPlan = sides
+      .filter((s) => pickedSides.has(s.n))
+      .map((s, _, __) => {
+        const i = sides.indexOf(s);
+        if (!px[i] || !px[i + 1]) return "";
+        return `<line x1="${px[i][0]}" y1="${px[i][1]}" x2="${px[i + 1][0]}" y2="${px[i + 1][1]}" stroke="#1565c0" stroke-width="5" stroke-linecap="round" opacity="0.8" />`;
       })
       .join("");
 
@@ -3060,6 +3235,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return `<div class="plan">${imgs}
       <svg viewBox="0 0 ${PRINT_W} ${PRINT_H}" xmlns="http://www.w3.org/2000/svg">
         <polygon points="${pts}" fill="rgba(60,110,71,0.18)" stroke="#2f5d3a" stroke-width="2.5" />
+        ${pickedOnPlan}
         ${sideLabels}
         ${drawn}
         <g transform="translate(${PRINT_W - 34},26)">
@@ -3104,26 +3280,62 @@ svg.leaflet-zoom-animated{will-change:transform;}
         if (s.metres != null) setbacks.set(s.n, s.metres);
       }
     }
-    const rows = props.sides
-      .map((s) => {
-        const sb = setbacks.get(s.n);
-        return `<tr><td>${s.n}</td><td>${fmtSide(s.length)}</td><td>${sb == null ? "—" : sb.toFixed(2) + " m"}</td></tr>`;
+    // A column of 24 dashes is not information. The setback column appears only
+    // when some side actually has one.
+    const anySetback = props.sides.some((s) => setbacks.has(s.n));
+    // Long lists ran down a whole second page one row at a time. Split into
+    // columns of at most 12 so a 24-sided parcel is two short columns, not a
+    // ribbon.
+    const PER_COL = 12;
+    const cols = [];
+    for (let i = 0; i < props.sides.length; i += PER_COL) cols.push(props.sides.slice(i, i + PER_COL));
+    const sidesTables = cols
+      .map((col) => {
+        const body = col
+          .map((s) => {
+            const sb = setbacks.get(s.n);
+            const picked = pickedSides.has(s.n) ? ' class="picked"' : "";
+            return `<tr${picked}><td>${s.n}</td><td>${fmtSide(s.length)}</td>` +
+                   (anySetback ? `<td>${sb == null ? "—" : sb.toFixed(2) + " m"}</td>` : "") + `</tr>`;
+          })
+          .join("");
+        return `<table class="sides"><thead><tr><th>${t("side")}</th><th>${t("length")}</th>` +
+               (anySetback ? `<th>${t("setbackCol")}</th>` : "") +
+               `</tr></thead><tbody>${body}</tbody></table>`;
       })
       .join("");
 
+    const perimeter = props.sides.reduce((sum, s) => sum + s.length, 0);
+    // Sides picked on screen are carried onto the sheet: the printout should be
+    // what the reader was looking at, and the total is usually the reason they
+    // pressed Print.
+    const chosen = props.sides.filter((s) => pickedSides.has(s.n));
+    const chosenTotal = chosen.reduce((sum, s) => sum + s.length, 0);
+
     const plan = printMapPlan(props.geom);
     const planHtml = plan ? buildPrintMap(props, setbacks) : `<div class="diagram">${buildPlotSvg(props.geom, props.sides, setbacks)}</div>`;
+    const area = props.measured_area ?? props.computed_area;
 
+    // One heading, then one table. The old sheet said the parcel, block,
+    // neighbourhood and street three times over -- in the title, again in a
+    // subtitle, and again in the table under it.
+    const cell = (label, value) => `<div class="cell"><dt>${label}</dt><dd>${value}</dd></div>`;
     document.getElementById("printArea").innerHTML = `
-      <h1>${t("parcel")} ${props.parcel_no ?? ""} &mdash; ${t("block")} ${props.block_no ?? ""}</h1>
-      <p class="sub">${[nbh, street].filter(Boolean).join(" &mdash; ")}</p>
-      <table class="meta">
-        <tr><th>${t("parcel")}</th><td>${props.parcel_no ?? "—"}</td><th>${t("block")}</th><td>${props.block_no ?? "—"}</td></tr>
-        <tr><th>${t("neighborhood")}</th><td>${nbh ?? "—"}</td><th>${t("street")}</th><td>${street ?? "—"}</td></tr>
-        <tr><th>${t("house")}</th><td>${props.house_no ?? "—"}</td><th>${t("area")}</th><td>${props.measured_area ?? "—"} m²</td></tr>
-      </table>
+      <h1>${t("parcel")} ${props.parcel_no ?? "—"} &mdash; ${t("block")} ${props.block_no ?? "—"}</h1>
+      <div class="meta">
+        ${cell(t("neighborhood"), nbh ?? "—")}
+        ${cell(t("street"), street ?? "—")}
+        ${cell(t("house"), props.house_no ?? "—")}
+        ${cell(t("area"), area == null ? "—" : fmtNum(area, "m&sup2;"))}
+        ${cell(t("landUse"), landUseText(props))}
+        ${cell(t("perimeter"), fmtSide(perimeter))}
+      </div>
       ${planHtml}
-      <table class="sides"><thead><tr><th>${t("side")}</th><th>${t("length")}</th><th>${t("setbackCol")}</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="sides-wrap">${sidesTables}</div>
+      ${chosen.length
+        ? `<p class="picked-total"><b>${t("sidesPicked", chosen.length)}</b> ` +
+          `(${chosen.map((s) => s.n).join(" + ")}) = <b>${fmtSide(chosenTotal)}</b></p>`
+        : ""}
       ${ctx ? "" : `<p class="note">${t("setbackUnavailable")}</p>`}
       <p class="foot">${t("source")}. ${t("printed")}: ${new Date().toLocaleString(lang === "ar" ? "ar-KW" : "en-GB")}.</p>
     `;
