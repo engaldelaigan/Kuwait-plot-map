@@ -1021,9 +1021,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-  const SUPABASE_URL = "https://qfvhegueptllwojefxly.supabase.co";
-  const ANON_KEY =
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFmdmhlZ3VlcHRsbHdvamVmeGx5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU2NDcxODMsImV4cCI6MjEwMTIyMzE4M30.QDg2hb1bYEBwKKWZ5Y9Hjgpc_woAR1SLZ5jvezTZJ3k";
+  // Everything goes through this site's own /api, never to Supabase directly.
+  //
+  // The project URL and anon key used to live here in the page source, which
+  // meant anyone could read them and query the database at full speed --
+  // a country-wide request returned 1,000 rows in 1.4 seconds. The key is now
+  // a Worker secret: it is never sent to a browser, requests are rate-limited
+  // per IP at the edge, and a viewport larger than the map ever shows is
+  // refused outright. See worker.js.
+  const API_BASE = "/api";
 
   const statusEl = document.getElementById("status");
   const errEl = document.getElementById("err");
@@ -3590,10 +3596,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }
 
   async function api(path) {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-      headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` },
-    });
-    if (!res.ok) throw new Error(`Supabase query failed: ${res.status} ${res.statusText}`);
+    // path arrives as "rpc/<fn>?args"; the proxy exposes it at /api/rpc/<fn>.
+    const res = await fetch(`${API_BASE}/${path}`);
+    if (!res.ok) {
+      // The proxy refuses a viewport bigger than it will serve. Saying so is
+      // more use than "query failed": the caller can zoom in.
+      if (res.status === 413) throw new Error("area too large; zoom in");
+      if (res.status === 429) throw new Error("too many requests; slow down");
+      throw new Error(`Query failed: ${res.status} ${res.statusText}`);
+    }
     return res.json();
   }
 
@@ -3601,8 +3612,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // The area report is owner-only. The real gate is the database grant --
   // area_report is executable by `authenticated` and revoked from `anon` -- so
   // a signed-out visitor gets 401 from the endpoint whatever the page does.
-  // Hiding the button is a convenience, not the lock: the key is in the page
-  // source and anyone can call the API directly.
+  // Hiding the button is a convenience, not the lock: the proxy will forward
+  // anyone's call, and the database is what refuses it.
   let session = null; // { access_token, refresh_token, email }
 
   function loadSession() {
@@ -3620,9 +3631,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }
 
   async function signIn(email, password) {
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    const res = await fetch(`${API_BASE}/auth/token?grant_type=password`, {
       method: "POST",
-      headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
     const body = await res.json().catch(() => ({}));
@@ -3639,9 +3650,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // of bouncing them to the login form mid-measurement.
   async function refreshSession() {
     if (!session?.refresh_token) return false;
-    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    const res = await fetch(`${API_BASE}/auth/token?grant_type=refresh_token`, {
       method: "POST",
-      headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: session.refresh_token }),
     });
     if (!res.ok) { saveSession(null); return false; }
@@ -3657,10 +3668,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // POST to an RPC as the signed-in user, retrying once after a refresh.
   async function authRpc(fn, payload, retried = false) {
     if (!session) throw new Error("not signed in");
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    const res = await fetch(`${API_BASE}/rpc/${fn}`, {
       method: "POST",
       headers: {
-        apikey: ANON_KEY,
+        // The proxy supplies the project key; this is the user's own session,
+        // which is what the database uses to decide whether they may write.
         Authorization: `Bearer ${session.access_token}`,
         "Content-Type": "application/json",
       },

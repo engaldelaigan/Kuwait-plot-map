@@ -1,9 +1,36 @@
 {
-  // Serves the viewer as static assets. There is no build step -- index.html
-  // is self-contained -- so Workers just hosts the directory as-is.
+  // The viewer's static files, plus a Worker in front of them that proxies
+  // every Supabase call (see worker.js). The Worker holds the key, so it is
+  // never served to a browser.
+  //
+  // run_worker_first sends every request to the Worker, which serves the site's
+  // own files straight back through the ASSETS binding and handles /api/*
+  // itself. The per-route array form was tried first and silently did nothing:
+  // /api/* fell through to the asset server and returned its bodyless 404
+  // without the Worker ever running.
   "name": "kuwait-plot-map",
   "compatibility_date": "2026-08-01",
+  "main": "worker.js",
   "assets": {
-    "directory": "."
+    "directory": ".",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "vars": {
+    "SUPABASE_URL": "https://qfvhegueptllwojefxly.supabase.co"
+  },
+  // Per-IP rate limiting at the edge. A viewport change costs two calls, so
+  // even hard panning sits well under 120 a minute; a script walking the
+  // country needs at least 312 requests just to clear the 1,000-row cap, and
+  // this holds it to roughly a request every half second.
+  "unsafe": {
+    "bindings": [
+      {
+        "name": "RATE_LIMITER",
+        "type": "ratelimit",
+        "namespace_id": "1001",
+        "simple": { "limit": 120, "period": 60 }
+      }
+    ]
   }
 }
