@@ -1,0 +1,24 @@
+# wrangler.jsonc serves this directory as static assets with "directory": ".",
+# which means everything beside index.html was being published -- including the
+# whole .git directory. /.git/config, /.git/HEAD and /.git/index all answered
+# 200 on kuwaitplot.com, which is enough to enumerate the object store and
+# reconstruct the entire source history.
+#
+# Only the files the site actually serves belong here.
+.git
+.git/**
+.gitignore
+.assetsignore
+.claude
+.claude/**
+.wrangler
+.wrangler/**
+node_modules
+node_modules/**
+tools
+tools/**
+# The local dev server and the deploy config, not part of the served site.
+server.js
+wrangler.jsonc
+*.log
+*.md
