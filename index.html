@@ -712,6 +712,28 @@ svg.leaflet-zoom-animated{will-change:transform;}
   #areaBtn:disabled { color: #9aa79f; cursor: default; }
   @media (max-width: 760px) { #areaBtn { font-size: 11px; padding: 6px 11px; } }
 
+  /* Sits under Leaflet's own zoom buttons, on the same side, so the map's
+     controls stay in one column instead of scattered around the edges. */
+  /* left, not inset-inline-start: the zoom buttons and the legend are both
+     pinned left in either direction, and a logical property sent this one to
+     the right in Arabic, where it hid behind the layers control. */
+  #locateBtn {
+    position: absolute; top: 88px; left: 10px; z-index: 900;
+    width: 30px; height: 30px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--paper); color: #3c6e47; cursor: pointer;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  }
+  #locateBtn:hover { background: #eef3ef; }
+  #locateBtn:disabled { opacity: 0.55; cursor: default; }
+  body.map-dark #locateBtn {
+    background: rgba(28, 30, 35, 0.93);
+    border-color: rgba(255, 255, 255, 0.14);
+    color: #9fd0ae;
+  }
+  body.map-dark #locateBtn:hover { background: rgba(44, 47, 54, 0.95); }
+
   #infoBtn {
     font: inherit; font-size: 15px; line-height: 1; padding: 4px 8px;
     border: 1px solid var(--line); border-radius: 6px;
@@ -825,7 +847,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
      are drawn above this (their controls are z-index 800). Tucked under them
      the first rows' counts were hidden. */
   #legend {
-    position: absolute; top: 84px; z-index: 550;
+    /* Below the zoom buttons AND the locate button, which share this column. */
+    position: absolute; top: 128px; z-index: 550;
     background: rgba(246, 244, 238, 0.95);
     border: 1px solid var(--line); border-radius: 8px;
     padding: 7px 9px; font-size: 11px; line-height: 1.5;
@@ -833,7 +856,37 @@ svg.leaflet-zoom-animated{will-change:transform;}
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
     left: 10px;
   }
+  /* Dark: invert, then rotate the hue back so the inversion doesn't turn OSM's
+     greens magenta and its blues orange. Desaturated and softened afterwards so
+     the roads sit back and the parcel colours on top are the brightest thing on
+     screen. */
+  .leaflet-layer.tiles-dark {
+    filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88) saturate(0.55);
+  }
+  /* Light: OSM with its landuse tints pulled most of the way out, so the base
+     is close to a plain canvas and stops competing with the plot shading. */
+  .leaflet-layer.tiles-quiet {
+    filter: saturate(0.3) brightness(1.06) contrast(0.95);
+  }
   html[dir="rtl"] #legend { left: 10px; right: auto; }
+  /* The boxes that float over the map follow it into dark. The panel and the
+     header stay light: they are page chrome rather than part of the map, and a
+     half-dark interface reads as a bug. */
+  body.map-dark #legend {
+    background: rgba(28, 30, 35, 0.93);
+    border-color: rgba(255, 255, 255, 0.14);
+    color: #e8e7e2;
+  }
+  body.map-dark #legend .n,
+  body.map-dark #legend .legend-note { color: #a8aaa4; }
+  body.map-dark #legend .sw { border-color: rgba(255, 255, 255, 0.3); }
+  body.map-dark #legend .legend-note { border-top-color: rgba(255, 255, 255, 0.14); }
+  /* Parcel numbers are haloed in white so they read over pale fills; over a
+     dark map the halo has to go the other way or the numbers vanish into it. */
+  body.map-dark .parcel-label {
+    color: #f0efec;
+    text-shadow: 0 0 3px #15171b, 0 0 3px #15171b, 0 0 3px #15171b, 0 0 3px #15171b;
+  }
   #legend[hidden] { display: none; }
   #legend .row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   #legend .sw {
@@ -974,6 +1027,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
   <div style="position: relative; flex: 1; min-height: 0;">
     <div id="map"></div>
     <button id="areaBtn" type="button" data-i18n="searchArea">Search this area</button>
+    <button id="locateBtn" type="button" title="موقعي · My location" aria-label="My location">
+      <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+        <circle cx="12" cy="12" r="3.2" fill="currentColor"/>
+        <circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+    </button>
     <div id="drawBar" hidden>
       <button id="drawDone" type="button" disabled></button>
       <button id="drawUndo" type="button" data-i18n="undo">Undo</button>
@@ -1056,6 +1116,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       osmSays: "على الطبيعة",
       osmSource: "مصدر: OpenStreetMap (غير رسمي)",
       legendOsm: (n) => `منها ${n.toLocaleString("ar-EG")} حسب OpenStreetMap`,
+      locating: "جاري تحديد الموقع…",
+      locateDenied: "تم رفض إذن الموقع",
+      locateOutside: "موقعك خارج الكويت",
+      locateFailed: "تعذّر تحديد الموقع",
+      locateUnsupported: "المتصفح لا يدعم تحديد الموقع",
       sidesPicked: (n) => (n === 1 ? "ضلع واحد" : n === 2 ? "ضلعان" : `${n.toLocaleString("ar-EG")} أضلاع`),
       clearPicks: "إلغاء",
       manualSource: "تصنيف يدوي",
@@ -1174,6 +1239,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       osmSays: "On the ground",
       osmSource: "Source: OpenStreetMap (unofficial)",
       legendOsm: (n) => `${n.toLocaleString()} of these from OpenStreetMap`,
+      locating: "finding you…",
+      locateDenied: "location permission denied",
+      locateOutside: "you're outside Kuwait",
+      locateFailed: "couldn't get your location",
+      locateUnsupported: "this browser can't do location",
       sidesPicked: (n) => `${n} side${n === 1 ? "" : "s"}`,
       clearPicks: "Clear",
       manualSource: "Set by hand",
@@ -1311,7 +1381,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   // Opens on Kuwait City. Zoom 15 rather than a wider overview: plots only
   // load from 15 up, and a first screen of bare basemap reads as broken.
-  const map = L.map("map", { zoomControl: true }).setView([29.3697, 47.9783], 15);
+  //
+  // If the browser will say where the viewer is, the map goes there instead --
+  // see startAtUserLocation below. Kuwait City is both the default and the
+  // fallback, so the map is never waiting on a permission prompt to show
+  // something useful.
+  const KUWAIT_CITY = [29.3697, 47.9783];
+  const map = L.map("map", { zoomControl: true }).setView(KUWAIT_CITY, 15);
 
   // Satellite imagery is the ground truth for checking whether plot polygons
   // land on the real parcels; OSM is drawn/traced data and can itself be
@@ -1323,11 +1399,33 @@ svg.leaflet-zoom-animated{will-change:transform;}
     maxNativeZoom: 19,
     maxZoom: 22,
     attribution: "&copy; OpenStreetMap contributors",
-  }).addTo(map);
+  });
   const satellite = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     { maxNativeZoom: 19, maxZoom: 22, attribution: "Imagery &copy; Esri" }
   );
+  // Two quieter basemaps, in the spirit of the municipality's Kuwait Finder:
+  // the land recedes to one flat tone and the road network is the only thing
+  // competing with the parcels. Standard OSM carto tints landuse, buildings and
+  // parks in its own colours, which fights the plot shading on top of it.
+  //
+  // Restyled OSM tiles rather than a second provider. Two were tried first and
+  // both failed on this map specifically: CARTO now stamps keyless tiles "API
+  // KEY REQUIRED", and Esri's canvas basemaps return "Map data not yet
+  // available" over Kuwait at the zooms where parcels are drawn. OSM is the one
+  // source known to cover the whole country at zoom 19, which is the zoom this
+  // tool exists for, so the look is a CSS filter over those tiles.
+  //
+  // className puts the filter on one layer's own tile container, so switching
+  // basemap switches the treatment with it, and the parcels -- drawn in the
+  // overlay pane, not the tile pane -- are never touched by it.
+  const osm = (className) =>
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxNativeZoom: 19, maxZoom: 22, className,
+      attribution: "&copy; OpenStreetMap contributors",
+    });
+  const dark = osm("tiles-dark");
+  const lightBase = osm("tiles-quiet");
 
   // The paved-road polygons: the actual kerb. Always on -- "how far back is the
   // plot from the road" is what this app is for, this is the only layer that
@@ -1344,6 +1442,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // setback is measured against. So this hides the DRAWING and leaves the data
   // loaded: snapping and measuring carry on working with the lines switched
   // off, which is the only version of this toggle that isn't a trap.
+  // Whichever basemap was last chosen, light by default.
+  const BASEMAPS = { dark, light: lightBase, classic: tiles };
+  const startBasemap = BASEMAPS[storage.get("kwplots-basemap") ?? "light"] ?? lightBase;
+  startBasemap.addTo(map);
+
   const edgeLinesLayer = L.layerGroup();
   const edgesOn = storage.get("kwplots-edges") !== "off";
   if (edgesOn) edgeLinesLayer.addTo(map);
@@ -1352,7 +1455,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
   map.getContainer().classList.toggle("edges-off", !edgesOn);
   L.control
     .layers(
-      { "OpenStreetMap": tiles, Satellite: satellite },
+      {
+        "داكن · Dark": dark,
+        "فاتح · Light": lightBase,
+        "OpenStreetMap": tiles,
+        "Satellite": satellite,
+      },
       // Two overlay toggles, both of them presentation-only.
       //
       // Block boundaries and street centrelines are gone entirely: both were
@@ -3389,21 +3497,66 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // without bringing back the colour the user turned off.
   let plotFill = storage.get("kwplots-fill") !== "off";
 
-  // Eight types get their own colour; everything else shares one. Residential
-  // keeps the green it always had -- it is the overwhelming majority, and
-  // recolouring it would make every familiar view look wrong.
-  const TYPE_COLORS = {
-    residential: "#a9c9ab",
-    investment:  "#7e57c2",
-    mixed:       "#ec9a3c",
-    commercial:  "#e05a5a",
-    industrial:  "#a1662f",
-    storage:     "#6d7f8c",
-    government:  "#2c4f8a",
-    gardens:     "#4caf50",
-    other:       "#c9c4b6",
-    unknown:     "#ddd9d0",
+  // Three looks, light and dark, and the original.
+  //
+  // The organising idea is borrowed from the municipality's own Kuwait Finder:
+  // 78% of parcels are residential, so if residential wears a strong colour the
+  // whole map shouts and nothing stands out. There, residential districts carry
+  // almost no fill and colour is spent only on the minority uses. These palettes
+  // do the same -- residential is a near-neutral tint, and the seven other types
+  // get the identity hues.
+  //
+  // The hues are the documented categorical slots rather than hand-picked
+  // values, which is also what gives the dark column: it is the same eight hues
+  // stepped for a dark surface, not an automatic inversion.
+  //
+  // Honest limit, measured rather than assumed: seven fills on a map cannot be
+  // pairwise distinct to the standard this method sets. Any two parcels can
+  // touch, so every pair has to hold up, and the cap for that is about three
+  // colours. The worst pair here reaches delta-E 10.5 against a floor of 15.
+  // Colour therefore narrows the answer rather than giving it, and the panel
+  // names the exact use on click -- which is the secondary encoding the shortfall
+  // obliges, and the reason the legend lists counts rather than colours alone.
+  const PALETTES = {
+    light: {
+      residential: "#e5e3da", // recedes: the overwhelming majority
+      investment:  "#6250d6",
+      mixed:       "#eda100",
+      commercial:  "#e34948",
+      industrial:  "#e87ba4", // magenta, not orange: beside red, orange measured
+                              // delta-E 7.1 and this lifts the worst pair to 10.5
+      storage:     "#1baf7a",
+      government:  "#2a78d6",
+      gardens:     "#008300",
+      other:       "#c3c2b7",
+      unknown:     "#e1e0d9",
+    },
+    dark: {
+      residential: "#34363d",
+      investment:  "#9085e9",
+      mixed:       "#c98500",
+      commercial:  "#e66767",
+      industrial:  "#d95926",
+      storage:     "#199e70",
+      government:  "#3987e5",
+      gardens:     "#008300",
+      other:       "#52514e",
+      unknown:     "#3a3c42",
+    },
+    classic: {
+      residential: "#a9c9ab",
+      investment:  "#7e57c2",
+      mixed:       "#ec9a3c",
+      commercial:  "#e05a5a",
+      industrial:  "#a1662f",
+      storage:     "#6d7f8c",
+      government:  "#2c4f8a",
+      gardens:     "#4caf50",
+      other:       "#c9c4b6",
+      unknown:     "#ddd9d0",
+    },
   };
+  let TYPE_COLORS = PALETTES.classic;
   const TYPE_LABELS = {
     residential: ["سكني", "Residential"],
     investment:  ["استثماري", "Investment"],
@@ -3472,17 +3625,24 @@ svg.leaflet-zoom-animated{will-change:transform;}
     !!p && p.land_use == null && p.land_class !== 2 && p.category !== "park" && !!p.osm_bucket;
   const catColor = (t) => TYPE_COLORS[t] ?? TYPE_COLORS.unknown;
 
+  // The boundary has to read against whatever is underneath, so it follows the
+  // basemap: a dark green hairline disappears on a dark map, and a pale one
+  // glares on a light map.
+  const outlineColor = () => (TYPE_COLORS === PALETTES.dark ? "#7c8a99" : "#3c6e47");
+  // Fills sit heavier on a dark surface before they read as a tint rather than
+  // a wash, and lighter on a light one before they bury the street network.
+  const fillAlpha = () => (TYPE_COLORS === PALETTES.dark ? 0.62 : 0.55);
   const plotStyle = (feature) =>
     plotFill
       ? {
-          color: "#3c6e47",
+          color: outlineColor(),
           weight: 1,
           fillColor: catColor(plotType(feature?.properties)),
-          fillOpacity: 0.55,
+          fillOpacity: fillAlpha(),
         }
-      : { color: "#3c6e47", weight: 1, fillOpacity: 0 };
+      : { color: outlineColor(), weight: 1, fillOpacity: 0 };
   const plotHoverStyle = () =>
-    plotFill ? { fillOpacity: 0.85 } : { weight: 2.5, fillOpacity: 0 };
+    plotFill ? { fillOpacity: fillAlpha() + 0.3 } : { weight: 2.5, fillOpacity: 0 };
 
   // Hides the red road-edge lines without unloading them. A CSS class on the
   // map container rather than removing layers, so the snap targets built from
@@ -4458,6 +4618,94 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   // The kerb layer is always on and loads with everything else; both overlay
   // toggles change what is drawn, not what is loaded.
+  // The plot colours follow the basemap. A palette stepped for a light surface
+  // is washed out on a dark one and vice versa, so the two are chosen together
+  // rather than left to the viewer to mismatch.
+  function applyBasemapTheme(layer, remember = true) {
+    const name = layer === dark ? "dark" : layer === lightBase ? "light" : "classic";
+    TYPE_COLORS = PALETTES[name] ?? PALETTES.classic;
+    document.body.classList.toggle("map-dark", name === "dark");
+    if (remember) storage.set("kwplots-basemap", name);
+    if (plotLayer) plotLayer.setStyle(plotStyle);
+    updateLegend();
+    if (selectedProps) showPanel(selectedProps, selectedLayer);
+  }
+  map.on("baselayerchange", (e) => applyBasemapTheme(e.layer));
+  // Apply the remembered choice once everything it touches exists.
+  applyBasemapTheme(startBasemap, false);
+
+  // ---- Opening where the viewer is ---------------------------------------
+  // The map is already showing Kuwait City by the time this runs, so a refused
+  // or slow permission costs nothing: there is no spinner and no empty screen
+  // waiting on an answer.
+  //
+  // Three things it deliberately will not do. It won't move the map if the
+  // viewer has already started using it -- having the view yanked away
+  // mid-pan is worse than opening in the wrong place. It won't follow a fix
+  // outside Kuwait, because this map only has Kuwait in it and sending someone
+  // abroad to empty sea is not an improvement on the default. And it only
+  // asks at all when the browser says permission was already granted, so a
+  // first-time visitor is not met with a permission prompt they did not ask
+  // for -- the locate button is there for them to opt in.
+  const KUWAIT_BOUNDS = L.latLngBounds([28.45, 46.50], [30.15, 48.50]);
+  let viewerTookOver = false;
+  const markTakeover = () => { viewerTookOver = true; };
+  map.once("mousedown", markTakeover);
+  map.once("wheel", markTakeover);
+  map.once("touchstart", markTakeover);
+
+  async function startAtUserLocation() {
+    if (!navigator.geolocation) return;
+    try {
+      const st = await navigator.permissions?.query({ name: "geolocation" });
+      if (st && st.state !== "granted") return; // never prompt unasked
+    } catch { return; } // no Permissions API: don't risk an unsolicited prompt
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (viewerTookOver) return;
+        const ll = L.latLng(pos.coords.latitude, pos.coords.longitude);
+        if (!KUWAIT_BOUNDS.contains(ll)) return;
+        // 17, not 15: if we know where someone is, they want their own street,
+        // not the district around it.
+        map.setView(ll, 17);
+      },
+      () => {},
+      { timeout: 8000, maximumAge: 5 * 60 * 1000 }
+    );
+  }
+  startAtUserLocation();
+
+  // The opt-in. Pressing it is the viewer asking, so this one may prompt --
+  // and a refusal or a fix outside Kuwait is reported rather than swallowed,
+  // because a button that silently does nothing reads as broken.
+  const locateBtn = document.getElementById("locateBtn");
+  locateBtn.addEventListener("click", () => {
+    if (!navigator.geolocation) { statusEl.textContent = t("locateUnsupported"); return; }
+    locateBtn.disabled = true;
+    statusEl.textContent = t("locating");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        locateBtn.disabled = false;
+        const ll = L.latLng(pos.coords.latitude, pos.coords.longitude);
+        if (!KUWAIT_BOUNDS.contains(ll)) { statusEl.textContent = t("locateOutside"); return; }
+        statusEl.textContent = "";
+        viewerTookOver = true; // an explicit move; nothing else should override it
+        map.setView(ll, 17);
+        if (userMarker) map.removeLayer(userMarker);
+        userMarker = L.circleMarker(ll, {
+          radius: 7, color: "#1565c0", weight: 2.5,
+          fillColor: "#1565c0", fillOpacity: 0.35, interactive: false,
+        }).addTo(map);
+      },
+      (err) => {
+        locateBtn.disabled = false;
+        statusEl.textContent = err.code === err.PERMISSION_DENIED ? t("locateDenied") : t("locateFailed");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  });
+  let userMarker = null;
+
   map.on("overlayadd", (e) => {
     if (e.layer === shadingLayer) setPlotFill(true);
     if (e.layer === edgeLinesLayer) setEdgeLines(true);

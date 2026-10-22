@@ -62,6 +62,42 @@ function bboxTooBig(params) {
   return Math.abs(e - w) * Math.abs(nn - s) > MAX_BBOX_SQ_DEG;
 }
 
+// Street-level imagery, from Mapillary rather than Google -- Google has no car
+// coverage in Kuwait at all. The municipality's own Kuwait Finder was built on
+// this same service: its code calls a.mapillary.com with an `organization_keys`
+// filter, so PACI uploads its annual road survey here. Their copy broke when
+// Mapillary retired API v3 and their certificate lapsed; v4 is live, free, and
+// needs no billing.
+//
+// Proxied for the same reason as Supabase: the token stays a Worker secret
+// instead of being readable in the page, and rotating it is one command.
+const MAPILLARY = "https://graph.mapillary.com/images";
+// A tight box around the point -- roughly 120 m, enough to find the nearest
+// pass without dragging in the next street's imagery.
+const SV_BOX_DEG = 0.0011;
+
+async function streetView(url, env) {
+  if (!env.MAPILLARY_TOKEN) return json(500, { error: "street view is not configured" });
+  const lon = Number(url.searchParams.get("lon"));
+  const lat = Number(url.searchParams.get("lat"));
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+    return json(400, { error: "lon and lat required" });
+  }
+  const bbox = [lon - SV_BOX_DEG, lat - SV_BOX_DEG, lon + SV_BOX_DEG, lat + SV_BOX_DEG].join(",");
+  const fields = "id,captured_at,compass_angle,geometry,thumb_1024_url,creator,is_pano";
+  const target = `${MAPILLARY}?bbox=${bbox}&fields=${fields}&limit=50` +
+                 `&access_token=${encodeURIComponent(env.MAPILLARY_TOKEN)}`;
+  const res = await fetch(target, { headers: { accept: "application/json" } });
+  const body = await res.text();
+  // Mapillary's own error text is passed through: a bad token has to be
+  // debuggable, and nothing here is secret except the token, which is not
+  // echoed back.
+  return new Response(body, {
+    status: res.status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -102,6 +138,8 @@ export default {
       target = `${env.SUPABASE_URL}/rest/v1/rpc/${fn}${url.search}`;
     } else if (url.pathname === "/api/auth/token") {
       target = `${env.SUPABASE_URL}/auth/v1/token${url.search}`;
+    } else if (url.pathname === "/api/streetview") {
+      return streetView(url, env);
     } else {
       return json(404, { error: "unknown endpoint" });
     }
