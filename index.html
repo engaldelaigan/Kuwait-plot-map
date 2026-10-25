@@ -1113,6 +1113,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       close: "إغلاق",
       openInMaps: "فتح في خرائط جوجل",
       landUse: "الاستعمال",
+      zoneSource: "حسب المخطط الهيكلي للبلدية",
       osmSays: "على الطبيعة",
       osmSource: "مصدر: OpenStreetMap (غير رسمي)",
       legendOsm: (n) => `منها ${n.toLocaleString("ar-EG")} حسب OpenStreetMap`,
@@ -1236,6 +1237,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       close: "Close",
       openInMaps: "Open in Google Maps",
       landUse: "Land use",
+      zoneSource: "From the municipality's master plan",
       osmSays: "On the ground",
       osmSource: "Source: OpenStreetMap (unofficial)",
       legendOsm: (n) => `${n.toLocaleString()} of these from OpenStreetMap`,
@@ -2904,6 +2906,18 @@ svg.leaflet-zoom-animated{will-change:transform;}
     } catch { /* the panel falls back to the bucket label */ }
   }
 
+  // The master plan's own 38 names, on the same principle: held upstream
+  // rather than duplicated here, so a code the sync starts returning shows its
+  // real name instead of quietly collapsing to a bucket label.
+  let zoneNames = null;
+  async function loadZoneNames() {
+    try {
+      const rows = await api("rpc/list_zones");
+      zoneNames = new Map(rows.map((r) => [r.code, r.name_ar]));
+      if (selectedProps) showPanel(selectedProps, selectedLayer);
+    } catch { /* the panel falls back to the bucket label */ }
+  }
+
   // The other panel fields come from the municipality; this one comes from
   // whoever last edited the map. A name is free text from a stranger, so it is
   // escaped before it goes anywhere near innerHTML.
@@ -2922,6 +2936,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
     }
     const exact = props.land_use != null ? landUseNames?.get(props.land_use) : null;
     if (exact) return exact;
+    // No recorded use, but the master plan has one. Named exactly and labelled
+    // as the plan, because it is a different kind of fact: what the parcel may
+    // be used for, not what was recorded for it. It is also finer than the 55
+    // parcel codes -- single-family against multi-family against workers'
+    // housing, retail against offices -- so the specific name is worth more
+    // than the colour it maps to.
+    if (props.zone_code != null && zoneNames?.has(props.zone_code)) {
+      return esc(zoneNames.get(props.zone_code)) +
+             `<span class="src-note">${t("zoneSource")}</span>`;
+    }
     // With no land-use code, the parcel's kind is the next best answer -- and
     // it is more specific than the colour it gets. A mosque and a ministry are
     // both coloured "government"; there is no reason to tell the reader
@@ -3613,6 +3637,17 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // parcels and 13,804 farms whose type we already hold in `subtype`.
     const fromKind = KIND_TYPE[p.category];
     if (fromKind) return fromKind;
+    // The municipality's master plan. Read from zone_bucket rather than from
+    // category, because category cannot distinguish them: a zoning answer of
+    // "residential" and the untitled-parcel guess of "residential" arrive in
+    // that column looking identical, and only one of them is evidence.
+    //
+    // Above OpenStreetMap because it is official planning data, below the
+    // parcel's own kind because it says what is permitted rather than what is
+    // there. The server writes it only where land_use is null, so it can never
+    // contradict a recorded use.
+    if (p.zone_bucket && MAIN_TYPES.includes(p.zone_bucket)) return p.zone_bucket;
+    if (p.zone_bucket === "other") return "other";
     // Nobody official has classified this one. OpenStreetMap sometimes has,
     // and the server only fills osm_bucket where land_use is null, so this
     // can never contradict the municipality -- only speak where it is silent.
@@ -3696,6 +3731,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
           osm_bucket: r.osm_bucket,
           manual_bucket: r.manual_bucket,
           manual_note: r.manual_note,
+          // The master plan's own code, and our grouping of it.
+          zone_code: r.zone_code,
+          zone_bucket: r.zone_bucket,
           computed_area: computeAreaM2(r.geom),
           sides: computeSideDetails(r.geom),
         },
@@ -4553,6 +4591,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // either there or not rather than appearing a moment later.
   loadSession();
   loadLandUseNames();
+  loadZoneNames();
   applyLang();
   applyAuthUi();
   initAddressCascade().catch((err) => console.error("address cascade failed:", err));

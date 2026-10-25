@@ -25,7 +25,7 @@
 // which is the opposite of the dashboard's "expose new tables" default that
 // quietly published plots_history.
 const PUBLIC_RPC = new Set([
-  "data_updated_at", "list_land_uses", "plot_setback",
+  "data_updated_at", "list_land_uses", "list_zones", "plot_setback",
   "plots_in_bbox", "road_edges_in_bbox",
   "plot_by_gis", "plot_by_block_parcel", "plot_by_parcel_no",
   "search_address", "area_extent",
@@ -98,6 +98,32 @@ async function streetView(url, env) {
   });
 }
 
+// Viewport requests are cacheable, but only once they stop being unique.
+//
+// Every pan produced a different bbox to fifteen decimal places, so no two
+// requests ever matched and CF-Cache-Status came back empty on all of them --
+// nothing could be cached, and each viewport cost the full ~1.8 s round trip.
+// Snapping the box out to a grid makes panning inside a cell reuse one URL,
+// which the edge can then serve, and which other viewers share.
+//
+// Snapped OUTWARDS, never inwards: a box rounded inwards would clip plots off
+// the edge of the view. The cost is a slightly larger query, which the row cap
+// already bounds.
+const GRID_DEG = 0.01; // ~1.1 km; a zoom-15 viewport spans a few cells
+const VIEWPORT_TTL = 3600; // plot data changes once a week, on the Friday sync
+
+function snapBbox(url) {
+  const n = (k) => Number(url.searchParams.get(k));
+  const [w, s, e, nn] = ["min_lon", "min_lat", "max_lon", "max_lat"].map(n);
+  if ([w, s, e, nn].some((v) => !Number.isFinite(v))) return null;
+  const out = new URL(url);
+  out.searchParams.set("min_lon", (Math.floor(w / GRID_DEG) * GRID_DEG).toFixed(2));
+  out.searchParams.set("min_lat", (Math.floor(s / GRID_DEG) * GRID_DEG).toFixed(2));
+  out.searchParams.set("max_lon", (Math.ceil(e / GRID_DEG) * GRID_DEG).toFixed(2));
+  out.searchParams.set("max_lat", (Math.ceil(nn / GRID_DEG) * GRID_DEG).toFixed(2));
+  return out;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -127,6 +153,7 @@ export default {
     const userToken = /^Bearer\s+ey/i.test(auth) ? auth.slice(7).trim() : null;
 
     let target;
+    let cacheKey = null;
     if (url.pathname.startsWith("/api/rpc/")) {
       const fn = url.pathname.slice("/api/rpc/".length);
       const known = PUBLIC_RPC.has(fn) || AUTHED_RPC.has(fn);
@@ -135,7 +162,23 @@ export default {
       if ((fn === "plots_in_bbox" || fn === "road_edges_in_bbox") && bboxTooBig(url.searchParams)) {
         return json(413, { error: "area too large; zoom in" });
       }
-      target = `${env.SUPABASE_URL}/rest/v1/rpc/${fn}${url.search}`;
+
+      let q = url.search;
+      // The two viewport lookups get their box snapped to a grid and the result
+      // cached. Only for anonymous callers: a signed-in request must not have
+      // its reply stored and handed to the next visitor.
+      const cacheable = (fn === "plots_in_bbox" || fn === "road_edges_in_bbox")
+        && request.method === "GET" && !userToken;
+      if (cacheable) {
+        const snapped = snapBbox(url);
+        if (snapped) {
+          q = snapped.search;
+          cacheKey = new Request(`${url.origin}${url.pathname}${q}`, { method: "GET" });
+          const hit = await caches.default.match(cacheKey);
+          if (hit) return hit;
+        }
+      }
+      target = `${env.SUPABASE_URL}/rest/v1/rpc/${fn}${q}`;
     } else if (url.pathname === "/api/auth/token") {
       target = `${env.SUPABASE_URL}/auth/v1/token${url.search}`;
     } else if (url.pathname === "/api/streetview") {
@@ -163,6 +206,17 @@ export default {
     for (const k of ["content-type", "content-range"]) {
       const v = res.headers.get(k);
       if (v) out.set(k, v);
+    }
+
+    // Store a good viewport reply for the next viewer of the same cell. Only
+    // 200s: caching an error would pin it there for the whole TTL.
+    if (cacheKey && res.status === 200) {
+      out.set("cache-control", `public, max-age=${VIEWPORT_TTL}`);
+      const body = await res.arrayBuffer();
+      const reply = new Response(body, { status: 200, headers: out });
+      // waitUntil, so storing it does not delay the response being sent.
+      ctx.waitUntil(caches.default.put(cacheKey, reply.clone()));
+      return reply;
     }
     return new Response(res.body, { status: res.status, headers: out });
   },
