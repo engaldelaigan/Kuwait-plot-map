@@ -98,31 +98,30 @@ async function streetView(url, env) {
   });
 }
 
-// Viewport requests are cacheable, but only once they stop being unique.
+// Viewport responses are cached, but the bounding box is NOT widened to get
+// cache hits. That was tried and it broke the map.
 //
-// Every pan produced a different bbox to fifteen decimal places, so no two
-// requests ever matched and CF-Cache-Status came back empty on all of them --
-// nothing could be cached, and each viewport cost the full ~1.8 s round trip.
-// Snapping the box out to a grid makes panning inside a cell reuse one URL,
-// which the edge can then serve, and which other viewers share.
+// The reasoning was that every pan produces a box unique to fifteen decimal
+// places, so nothing ever matches and nothing can be cached; snapping the box
+// out to a 0.01 degree grid would make panning inside a cell reuse one URL.
+// It did, and repeat views dropped from ~1,800 ms to under 100 ms.
 //
-// Snapped OUTWARDS, never inwards: a box rounded inwards would clip plots off
-// the edge of the view. The cost is a slightly larger query, which the row cap
-// already bounds.
-const GRID_DEG = 0.01; // ~1.1 km; a zoom-15 viewport spans a few cells
+// What it missed: plots_in_bbox is capped at 1,000 rows and has no ORDER BY,
+// so once a box holds more plots than the cap, WHICH thousand come back is
+// arbitrary. A widened box in a dense area therefore returns a thousand plots
+// from somewhere else in the enlarged area, not the ones under the viewer's
+// screen. Measured on real browser-sized viewports: 86% of the plots that
+// should have been visible were missing at zoom 16, and 100% at zoom 15.
+// Zooming in shrank the box under the cap and they reappeared, which is
+// exactly how it was reported -- "I have to zoom in and out for them to
+// appear".
+//
+// So the cache key is the exact box the page asked for. Hit rate is low --
+// only a viewer returning to precisely the same view benefits -- and that is
+// the correct trade: a fast map that shows the wrong parcels is not a map.
+// Making this cacheable again means fixed tiles small enough to sit under the
+// row cap, which is a different design, not a rounding tweak.
 const VIEWPORT_TTL = 3600; // plot data changes once a week, on the Friday sync
-
-function snapBbox(url) {
-  const n = (k) => Number(url.searchParams.get(k));
-  const [w, s, e, nn] = ["min_lon", "min_lat", "max_lon", "max_lat"].map(n);
-  if ([w, s, e, nn].some((v) => !Number.isFinite(v))) return null;
-  const out = new URL(url);
-  out.searchParams.set("min_lon", (Math.floor(w / GRID_DEG) * GRID_DEG).toFixed(2));
-  out.searchParams.set("min_lat", (Math.floor(s / GRID_DEG) * GRID_DEG).toFixed(2));
-  out.searchParams.set("max_lon", (Math.ceil(e / GRID_DEG) * GRID_DEG).toFixed(2));
-  out.searchParams.set("max_lat", (Math.ceil(nn / GRID_DEG) * GRID_DEG).toFixed(2));
-  return out;
-}
 
 export default {
   async fetch(request, env, ctx) {
@@ -163,22 +162,17 @@ export default {
         return json(413, { error: "area too large; zoom in" });
       }
 
-      let q = url.search;
-      // The two viewport lookups get their box snapped to a grid and the result
-      // cached. Only for anonymous callers: a signed-in request must not have
-      // its reply stored and handed to the next visitor.
+      // The viewport lookups are cached under the exact box requested. Only
+      // for anonymous callers: a signed-in reply must never be stored and
+      // handed to the next visitor.
       const cacheable = (fn === "plots_in_bbox" || fn === "road_edges_in_bbox")
         && request.method === "GET" && !userToken;
       if (cacheable) {
-        const snapped = snapBbox(url);
-        if (snapped) {
-          q = snapped.search;
-          cacheKey = new Request(`${url.origin}${url.pathname}${q}`, { method: "GET" });
-          const hit = await caches.default.match(cacheKey);
-          if (hit) return hit;
-        }
+        cacheKey = new Request(request.url, { method: "GET" });
+        const hit = await caches.default.match(cacheKey);
+        if (hit) return hit;
       }
-      target = `${env.SUPABASE_URL}/rest/v1/rpc/${fn}${q}`;
+      target = `${env.SUPABASE_URL}/rest/v1/rpc/${fn}${url.search}`;
     } else if (url.pathname === "/api/auth/token") {
       target = `${env.SUPABASE_URL}/auth/v1/token${url.search}`;
     } else if (url.pathname === "/api/streetview") {
