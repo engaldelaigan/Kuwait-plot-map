@@ -257,9 +257,11 @@
   }
 
   function render() {
-    // Tabs, with the count of what the current search finds in each.
+    // Tab counts are the size of each section, not how many matches a search
+    // finds in it. A search applies to the open tab only, so showing hits for
+    // the other two would be reporting a search that is not being run.
     $("tabs").innerHTML = TABS.map((t) => {
-      const n = rows.filter((r) => r.plot_type === t.key && matches(r, q)).length;
+      const n = rows.filter((r) => r.plot_type === t.key).length;
       return `<button type="button" data-tab="${t.key}" class="${t.key === tab ? "active" : ""}">` +
              `${t.label}<span class="count">${n}</span></button>`;
     }).join("");
@@ -267,13 +269,21 @@
       b.addEventListener("click", () => { tab = b.dataset.tab; store.set("kwlaws-tab", tab); render(); });
     }
 
-    const shown = rows.filter((r) => r.plot_type === tab && matches(r, q));
+    // Only ever the open tab. Switching tabs re-runs the same term against the
+    // new one rather than carrying results across.
+    const inTab = rows.filter((r) => r.plot_type === tab);
+    const shown = inTab.filter((r) => matches(r, q));
+    const label = TABS.find((t) => t.key === tab)?.label ?? "";
     $("hits").textContent = q
-      ? `${shown.length} نتيجة في هذا القسم`
+      ? `${shown.length} من ${inTab.length} في «${label}»`
       : `${shown.length} بند`;
 
     if (!shown.length) {
-      $("out").innerHTML = `<p class="empty">${q ? "لا توجد نتائج" : "لا توجد بيانات"}</p>`;
+      // Say which tab came up empty, so a search that found nothing here does
+      // not read as a search that found nothing anywhere.
+      $("out").innerHTML = `<p class="empty">${
+        q ? `لا توجد نتائج عن «${esc(q)}» في «${esc(label)}»` : "لا توجد بيانات"
+      }</p>`;
       return;
     }
 
