@@ -35,7 +35,13 @@ const PUBLIC_RPC = new Set([
 // Signed-in only. Passed through with the caller's own token so the database
 // still decides -- the grants on these are revoked from anon, and that remains
 // the real gate. Listing them here only makes them reachable.
-const AUTHED_RPC = new Set(["area_report", "area_plots", "set_plot_type"]);
+const AUTHED_RPC = new Set([
+  "area_report", "area_plots", "set_plot_type",
+  // The private building-regulations reference on /laws.html. Listed here only
+  // so the proxy will forward it; the database checks the caller against an
+  // allowlist of user ids, so a signed-in stranger gets an empty result.
+  "building_laws_search", "building_law_docs",
+]);
 
 // The largest area a single viewport request may cover, in square degrees.
 //

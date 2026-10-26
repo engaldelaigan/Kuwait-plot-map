@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="robots" content="noindex, nofollow" />
+<title>أنظمة البناء</title>
+<!--
+  A private reference, deliberately not part of the map.
+
+  Its own page rather than a panel in index.html: no map code loads here, no
+  parcel is involved, and nothing on the map hints that this exists. The only
+  thing the two share is the sign-in session.
+
+  The lock is in the database, not here. building_laws_search is granted to
+  `authenticated` and then checks the caller against an allowlist of user ids,
+  so a signed-out visitor gets 401 and a signed-in stranger gets an empty
+  result. Hiding the page is tidiness; it is not what keeps the data private.
+-->
+<style>
+  :root {
+    --paper: #fbfaf7;
+    --ink: #17211b;
+    --muted: #5b6b60;
+    --line: #d9d5cb;
+    --accent: #3c6e47;
+    --wash: #eef3ef;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font: 14px/1.6 "Segoe UI", Tahoma, system-ui, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid var(--line); background: #fff;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  header .spacer { flex: 1; }
+  button, input {
+    font: inherit; border: 1px solid var(--line); border-radius: 6px;
+    background: #fff; color: var(--ink); padding: 6px 10px;
+  }
+  button { cursor: pointer; }
+  button:hover { background: var(--wash); }
+  #signOut, #signInBtn { border-color: var(--accent); color: var(--accent); }
+
+  /* Sign-in gate */
+  #gate {
+    flex: 1; display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  #gate form {
+    width: min(340px, 100%); background: #fff; border: 1px solid var(--line);
+    border-radius: 10px; padding: 20px; box-shadow: 0 6px 24px rgba(0,0,0,0.07);
+  }
+  #gate h2 { margin: 0 0 4px; font-size: 15px; }
+  #gate p { margin: 0 0 14px; color: var(--muted); font-size: 12px; }
+  #gate label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 3px; }
+  #gate input { width: 100%; }
+  #gate button { width: 100%; margin-top: 14px; background: var(--accent); color: #fff; border-color: var(--accent); }
+  #gateErr { color: #a33; font-size: 12px; margin-top: 10px; min-height: 1em; }
+
+  /* The reference itself */
+  #app { flex: 1; display: none; flex-direction: column; min-height: 0; }
+  #tabs { display: flex; gap: 6px; padding: 10px 16px 0; flex-wrap: wrap; }
+  #tabs button {
+    border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+    border-bottom-color: transparent; padding: 7px 16px;
+  }
+  #tabs button.active { background: var(--wash); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  #tabs .count { color: var(--muted); font-weight: 400; font-size: 11px; margin-inline-start: 5px; }
+  #searchRow {
+    display: flex; gap: 8px; align-items: center; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); flex-wrap: wrap;
+  }
+  #q { flex: 1; min-width: 180px; }
+  #hits { color: var(--muted); font-size: 12px; }
+  main { flex: 1; overflow-y: auto; padding: 14px 16px 40px; }
+
+  .doc { margin-bottom: 22px; }
+  .doc > h2 {
+    font-size: 13px; margin: 0 0 2px; color: var(--accent);
+    border-bottom: 1px solid var(--line); padding-bottom: 5px;
+  }
+  .doc > .src { font-size: 11px; color: var(--muted); margin: 0 0 10px; }
+  .doc > .src a { color: var(--muted); }
+  .sec {
+    background: #fff; border: 1px solid var(--line); border-radius: 8px;
+    padding: 11px 14px; margin-bottom: 9px;
+  }
+  .sec h3 { font-size: 13px; margin: 0 0 7px; color: var(--ink); }
+  .sec .body { white-space: pre-wrap; font-size: 13px; }
+  /* The scraper keeps list items as "• " at the start of a line. */
+  .sec .body { padding-inline-start: 2px; }
+  mark { background: #ffe9a8; color: inherit; padding: 0 1px; border-radius: 2px; }
+  .empty { color: var(--muted); padding: 30px 0; text-align: center; }
+  .note {
+    margin: 18px 0 0; padding: 10px 12px; border: 1px solid var(--line);
+    border-radius: 8px; background: #fff; color: var(--muted); font-size: 11.5px;
+  }
+  @media (max-width: 620px) {
+    header h1 { font-size: 14px; }
+    main { padding: 12px 10px 40px; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>أنظمة البناء</h1>
+    <span class="spacer"></span>
+    <span id="who" style="font-size:12px;color:var(--muted)"></span>
+    <button id="signOut" type="button" hidden>خروج</button>
+  </header>
+
+  <div id="gate">
+    <form id="signInForm">
+      <h2>تسجيل الدخول</h2>
+      <p>هذه الصفحة خاصة.</p>
+      <label for="email">البريد الإلكتروني</label>
+      <input id="email" type="email" autocomplete="username" required />
+      <label for="pass">كلمة المرور</label>
+      <input id="pass" type="password" autocomplete="current-password" required />
+      <button id="signInBtn" type="submit">دخول</button>
+      <div id="gateErr"></div>
+    </form>
+  </div>
+
+  <div id="app">
+    <div id="tabs"></div>
+    <div id="searchRow">
+      <input id="q" type="search" placeholder="ابحث في الاشتراطات… مثل: ارتداد، نسبة البناء، سرداب" />
+      <button id="clearQ" type="button">مسح</button>
+      <span id="hits"></span>
+    </div>
+    <main id="out"></main>
+  </div>
+
+<script>
+(() => {
+  "use strict";
+  // Everything goes through this site's own /api, same as the map: the
+  // Supabase key is a Worker secret and never reaches the browser.
+  const API = "/api";
+  const TABS = [
+    { key: "residential", label: "سكني" },
+    { key: "investment",  label: "استثماري" },
+    { key: "commercial",  label: "تجاري" },
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  };
+
+  // The same session the map stores, so signing in on one signs in on both.
+  let session = null;
+  try { session = JSON.parse(store.get("kwplots-session") || "null"); } catch {}
+
+  async function authRpc(fn, payload, retried = false) {
+    if (!session) throw new Error("not signed in");
+    const res = await fetch(`${API}/rpc/${fn}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload ?? {}),
+    });
+    if (res.status === 401 && !retried && (await refresh())) return authRpc(fn, payload, true);
+    if (!res.ok) throw new Error(`${fn} failed: ${res.status}`);
+    if (res.status === 204) return null;
+    return res.json().catch(() => null);
+  }
+
+  async function refresh() {
+    if (!session?.refresh_token) return false;
+    const res = await fetch(`${API}/auth/token?grant_type=refresh_token`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: session.refresh_token }),
+    });
+    if (!res.ok) { setSession(null); return false; }
+    const b = await res.json();
+    setSession({ access_token: b.access_token, refresh_token: b.refresh_token, email: b.user?.email ?? session.email });
+    return true;
+  }
+
+  function setSession(s) {
+    session = s;
+    store.set("kwplots-session", s ? JSON.stringify(s) : "");
+    paintAuth();
+  }
+
+  function paintAuth() {
+    const inApp = !!session;
+    $("gate").style.display = inApp ? "none" : "flex";
+    $("app").style.display = inApp ? "flex" : "none";
+    $("signOut").hidden = !inApp;
+    $("who").textContent = session?.email ?? "";
+  }
+
+  $("signInForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("gateErr").textContent = "";
+    try {
+      const res = await fetch(`${API}/auth/token?grant_type=password`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: $("email").value.trim(), password: $("pass").value }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(b.error_description || b.msg || `HTTP ${res.status}`);
+      setSession({ access_token: b.access_token, refresh_token: b.refresh_token, email: b.user?.email });
+      $("pass").value = "";
+      await load();
+    } catch (err) { $("gateErr").textContent = err.message; }
+  });
+
+  $("signOut").addEventListener("click", () => { setSession(null); rows = []; });
+
+  // ---- the reference ------------------------------------------------------
+  let rows = [];        // everything the account may see
+  let tab = store.get("kwlaws-tab") || "residential";
+  let q = "";
+
+  async function load() {
+    try {
+      rows = (await authRpc("building_laws_search", { q: null, ptype: null })) ?? [];
+    } catch (err) {
+      rows = [];
+      $("out").innerHTML = `<p class="empty">${esc(err.message)}</p>`;
+      return;
+    }
+    render();
+  }
+
+  // Filtering happens here rather than per keystroke at the server: 67
+  // sections is nothing to hold in memory, and it makes the search instant.
+  // The database function does the same matching for anything that needs it.
+  function matches(r, term) {
+    if (!term) return true;
+    const t = term.toLowerCase();
+    return (r.section_title ?? "").toLowerCase().includes(t)
+        || (r.body ?? "").toLowerCase().includes(t);
+  }
+
+  function highlight(text, term) {
+    const safe = esc(text);
+    if (!term) return safe;
+    // Escape the term for use in a regex, then mark every occurrence.
+    const re = new RegExp(esc(term).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+    return safe.replace(re, (m) => `<mark>${m}</mark>`);
+  }
+
+  function render() {
+    // Tabs, with the count of what the current search finds in each.
+    $("tabs").innerHTML = TABS.map((t) => {
+      const n = rows.filter((r) => r.plot_type === t.key && matches(r, q)).length;
+      return `<button type="button" data-tab="${t.key}" class="${t.key === tab ? "active" : ""}">` +
+             `${t.label}<span class="count">${n}</span></button>`;
+    }).join("");
+    for (const b of $("tabs").querySelectorAll("button")) {
+      b.addEventListener("click", () => { tab = b.dataset.tab; store.set("kwlaws-tab", tab); render(); });
+    }
+
+    const shown = rows.filter((r) => r.plot_type === tab && matches(r, q));
+    $("hits").textContent = q
+      ? `${shown.length} نتيجة في هذا القسم`
+      : `${shown.length} بند`;
+
+    if (!shown.length) {
+      $("out").innerHTML = `<p class="empty">${q ? "لا توجد نتائج" : "لا توجد بيانات"}</p>`;
+      return;
+    }
+
+    // Group by source document, so a section is always read in context.
+    const byDoc = new Map();
+    for (const r of shown) {
+      if (!byDoc.has(r.doc_title)) byDoc.set(r.doc_title, []);
+      byDoc.get(r.doc_title).push(r);
+    }
+
+    let html = "";
+    for (const [doc, items] of byDoc) {
+      const first = items[0];
+      html += `<section class="doc"><h2>${esc(doc)}</h2>` +
+        `<p class="src">المصدر: <a href="${esc(first.source_url)}" target="_blank" rel="noopener noreferrer">بلدية الكويت</a>` +
+        ` · آخر تحديث للنسخة المحفوظة: ${esc(String(first.fetched_at).slice(0, 10))}</p>`;
+      for (const r of items) {
+        html += `<article class="sec">` +
+          (r.section_title ? `<h3>${highlight(r.section_title, q)}</h3>` : "") +
+          `<div class="body">${highlight(r.body, q)}</div></article>`;
+      }
+      html += `</section>`;
+    }
+    html += `<p class="note">نسخة محفوظة من الصفحات المنشورة على موقع بلدية الكويت، وليست مرجعاً رسمياً.` +
+            ` القرار 206/2009 عُدّل مراراً، آخرها قرارات صدرت في 2024 و2025، لذا يُرجع إلى المصدر قبل الاعتماد عليها.</p>`;
+    $("out").innerHTML = html;
+    $("out").scrollTop = 0;
+  }
+
+  let typing;
+  $("q").addEventListener("input", () => {
+    clearTimeout(typing);
+    typing = setTimeout(() => { q = $("q").value.trim(); render(); }, 120);
+  });
+  $("clearQ").addEventListener("click", () => { $("q").value = ""; q = ""; render(); });
+
+  paintAuth();
+  if (session) load();
+})();
+</script>
+</body>
+</html>
