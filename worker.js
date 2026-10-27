@@ -43,6 +43,7 @@ const AUTHED_RPC = new Set([
   // 404s anything it has not been told about, and an allowlist is only as
   // complete as the last thing added to the page.
   "area_report_nbh", "area_report_blk", "area_plots_nbh", "area_plots_blk",
+  "area_report_gov", "area_plots_gov",
   // The private building-regulations reference on /laws.html. Listed here only
   // so the proxy will forward it; the database checks the caller against an
   // allowlist of user ids, so a signed-in stranger gets an empty result.

@@ -826,6 +826,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   #report tr.cat td:first-child { padding-inline-start: 4px; border-radius: 4px 0 0 4px; }
   #report tr.cat td:last-child { padding-inline-end: 4px; border-radius: 0 4px 4px 0; }
   #report .muted { color: #5b6b60; font-weight: 400; font-size: 11px; }
+  #report .scope { margin: -3px 0 7px; line-height: 1.35; }
   #report .close {
     float: inline-end; border: none; background: none; cursor: pointer;
     font-size: 15px; line-height: 1; color: #5b6b60; padding: 0 0 0 8px;
@@ -918,14 +919,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
      that div with an inline transform, so a transform in the stylesheet never
      survives. Placing the div is Leaflet's business; centring the span on it
      is ours. */
-  .place-label { pointer-events: none; }
-  .place-label > span, .block-label > span {
+  /* Clickable: a name selects that area. */
+  .place-label, .gov-label { pointer-events: auto; cursor: pointer; }
+  .place-label > span, .gov-label > span, .block-label > span {
     position: absolute;
     display: block;
     transform: translate(-50%, -50%);
     white-space: nowrap;
   }
-  .place-label > span {
+  .place-label > span, .gov-label > span {
     color: #0f1d16;
     font-weight: 800;
     letter-spacing: 0.2px;
@@ -938,7 +940,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
       1.5px -1.5px 0 #fff, -1.5px -1.5px 0 #fff,
       0 0 7px rgba(255, 255, 255, 0.95);
   }
-  body.map-dark .place-label > span {
+  /* A governorate reads as a bigger, looser label than the neighbourhoods
+     inside it, so the two are not mistaken for each other at the zoom where
+     both appear. */
+  .gov-label > span { letter-spacing: 2px; }
+  .place-label:hover > span, .gov-label:hover > span { color: #b45309; }
+  .place-label.on > span, .gov-label.on > span {
+    color: #c2410c;
+    text-decoration: underline;
+  }
+  body.map-dark .place-label > span, body.map-dark .gov-label > span {
     color: #f6f5f1;
     text-shadow:
       2px 0 0 #11131a, -2px 0 0 #11131a, 0 2px 0 #11131a, 0 -2px 0 #11131a,
@@ -946,6 +957,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       1.5px -1.5px 0 #11131a, -1.5px -1.5px 0 #11131a,
       0 0 8px rgba(0, 0, 0, 0.92);
   }
+  body.map-dark .place-label:hover > span, body.map-dark .gov-label:hover > span { color: #ffd08a; }
+  body.map-dark .place-label.on > span, body.map-dark .gov-label.on > span { color: #ffb454; }
   /* Block numbers: haloed text like the parcel numbers, told apart by size and
      colour rather than by a filled chip. The chip was legible but it covered
      the parcels underneath it, which is the one thing a label sitting in the
@@ -1256,6 +1269,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       reportCapped: "الحد الأقصى ٢٠٠٠٠ قسيمة — النتيجة غير مكتملة",
       areaShown: (n) => `${n} قسيمة`,
       areaPartial: (n) => `${n} قسيمة — العرض غير مكتمل، قرّب أكثر`,
+      pickLimit: (n) => `الحد الأقصى ${n} مناطق مختارة`,
+      pickCovered: (name) => `مشمولة أصلاً ضمن «${name}»`,
       selNbh: "اختر المنطقة",
       selBlk: "اختر القطعة",
       selPar: "اختر القسيمة",
@@ -1384,6 +1399,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       reportCapped: "Capped at 20,000 plots — result is incomplete",
       areaShown: (n) => `${n} plots`,
       areaPartial: (n) => `${n} plots — view truncated, zoom in`,
+      pickLimit: (n) => `At most ${n} areas at once`,
+      pickCovered: (name) => `Already inside “${name}”`,
       selNbh: "Select neighbourhood",
       selBlk: "Select block",
       selPar: "Select parcel",
@@ -2124,13 +2141,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
     highlightLayer.clearLayers();
     highlightedCat = null;
     reportScope = null;
-    // A chosen block is part of the area the report describes, so its outline
-    // goes with it -- including when the report is closed from its own button,
-    // or when choosing a different neighbourhood ends the old one.
-    if (selectedBlockKey) {
-      selectedBlockKey = null;
-      updateBlockLabels();
-    }
+    // The chosen areas are what the report described, so they go with it --
+    // including when it is closed from its own button, or when choosing a
+    // different neighbourhood in the cascade ends the old one.
+    const had = picks.size > 0;
+    picks.clear();
+    pickHighlight.clearLayers();
+    if (had) { updateBlockLabels(); updatePlaceLabels(); }
   }
 
   function redrawOutline(preview) {
@@ -2216,7 +2233,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return Math.abs(s / 2) / 1e6;
   }
 
-  function showReport(rows) {
+  // `caption` names what the numbers cover. With one drawn outline that was
+  // obvious; with several chosen areas summed together it is not, and a total
+  // whose scope you cannot see is worse than no total.
+  function showReport(rows, caption) {
     const pick = (r) => (lang === "ar" ? r.label_ar : r.label_en);
     const total = rows.reduce((s, r) => s + Number(r.n), 0);
     if (!rows.length) {
@@ -2239,6 +2259,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       reportEl.innerHTML =
         `<button class="close" type="button">&times;</button>` +
         `<h3>${t("reportTitle")}</h3>` +
+        (caption ? `<p class="muted scope">${esc(caption)}</p>` : "") +
         `<table><tbody>${body}` +
         `<tr class="total"><td>${t("reportTotal")}</td><td class="n">${total.toLocaleString()}</td></tr>` +
         `</tbody></table>${capped}`;
@@ -2265,6 +2286,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // saying 8 would light up a different set.
   let reportScope = null; // { kind: "shape", ring } | { kind: "nbh", gov, nbh }
 
+  const plotsFor = (p, cat) =>
+    p.kind === "blk" ? authRpc("area_plots_blk", { gov: p.gov, nbh: p.nbh, blk: p.blk, cat })
+    : p.kind === "nbh" ? authRpc("area_plots_nbh", { gov: p.gov, nbh: p.nbh, cat })
+    : authRpc("area_plots_gov", { gov: p.gov, cat });
+
   async function highlightCategory(cat, row) {
     for (const el of reportEl.querySelectorAll("tr.cat")) el.classList.remove("on");
     highlightLayer.clearLayers();
@@ -2276,14 +2302,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
     try {
       const s = reportScope;
       rows =
-        s?.kind === "blk"
-          ? await authRpc("area_plots_blk", { gov: s.gov, nbh: s.nbh, blk: s.blk, cat })
-          : s?.kind === "nbh"
-            ? await authRpc("area_plots_nbh", { gov: s.gov, nbh: s.nbh, cat })
-            : await authRpc("area_plots", {
-                shape: JSON.stringify({ type: "Polygon", coordinates: [s.ring] }),
-                cat,
-              });
+        // Several chosen areas: ask each for its plots in this category and
+        // join the answers, so the painted parcels are exactly the ones the
+        // number in the row counted.
+        s?.kind === "picks"
+          ? (await Promise.all(s.items.map((p) => plotsFor(p, cat)))).flat()
+          : s?.kind === "blk"
+            ? await authRpc("area_plots_blk", { gov: s.gov, nbh: s.nbh, blk: s.blk, cat })
+            : s?.kind === "nbh"
+              ? await authRpc("area_plots_nbh", { gov: s.gov, nbh: s.nbh, cat })
+              : await authRpc("area_plots", {
+                  shape: JSON.stringify({ type: "Polygon", coordinates: [s.ring] }),
+                  cat,
+                });
     } catch (err) {
       console.error(err);
       highlightedCat = null;
@@ -2832,10 +2863,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // nothing to put them against either -- a block number floating over an
   // empty basemap means little.
   const blockLabels = L.layerGroup().addTo(map);
-  const blockHighlight = L.layerGroup().addTo(map);
+  const pickHighlight = L.layerGroup().addTo(map);
   const BLOCK_MIN_ZOOM = 15;
   let blockGroups = new Map();
-  let selectedBlockKey = null;
+  // Everything currently chosen, of any kind. See "Choosing areas" below.
+  let picks = new Map();
 
   // Signed area and centroid of a ring, by the shoelace formula.
   //
@@ -2902,11 +2934,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   function updateBlockLabels() {
     blockLabels.clearLayers();
     blockGroups = map.getZoom() < BLOCK_MIN_ZOOM ? new Map() : groupBlocks();
-    // A block panned out of view takes its highlight with it; keeping an
-    // outline for parcels no longer loaded would leave it stranded wherever
-    // the map happened to stop.
-    if (selectedBlockKey && !blockGroups.has(selectedBlockKey)) selectedBlockKey = null;
-    drawBlockHighlight();
+    drawPicks();
     if (!blockGroups.size) return;
 
     const bounds = map.getBounds();
@@ -2927,34 +2955,115 @@ svg.leaflet-zoom-animated{will-change:transform;}
         interactive: true,
         keyboard: false,
         icon: L.divIcon({
-          className: `block-label${g.key === selectedBlockKey ? " on" : ""}`,
+          className: `block-label${picks.has(g.key) ? " on" : ""}`,
           html: `<span>${esc(t("block"))} ${esc(g.blk)}</span>`,
           iconSize: null,
         }),
       });
-      marker.on("click", () => selectBlock(g.key));
+      marker.on("click", () => pickBlock(g));
       marker.addTo(blockLabels);
     }
   }
 
-  // ---- Choosing a block ---------------------------------------------------
-  function drawBlockHighlight() {
-    blockHighlight.clearLayers();
-    const g = selectedBlockKey && blockGroups.get(selectedBlockKey);
-    if (!g) return;
-    // Every parcel outlined rather than one boundary around the block. The
-    // outer boundary would need a union of the parcels, and this says more:
-    // it shows the block's extent AND how it is divided, which is what the
-    // number is being clicked to find out.
-    for (const f of g.feats) {
-      L.geoJSON(f, {
-        interactive: false,
-        style: { color: "#e67e22", weight: 2.5, fillColor: "#e67e22", fillOpacity: 0.14 },
-      }).addTo(blockHighlight);
+  // ---- Choosing areas -----------------------------------------------------
+  // One selection, holding as many areas as you like and in any mix: blocks,
+  // neighbourhoods, governorates. Clicking a label adds it, clicking it again
+  // removes it, and the report describes whatever is in the set.
+  //
+  // A pick stores identity, never geometry. A block's parcels exist in the
+  // page only while it is on screen, so holding the shapes would mean losing
+  // the pick on the first pan. Holding the codes means the outline reappears
+  // when the parcels do, and the breakdown -- which the server computes from
+  // those codes -- is right the whole time either way.
+  const PICK_STYLE = { color: "#e67e22", weight: 2.5, fillColor: "#e67e22", fillOpacity: 0.14 };
+  // Each pick is its own request, both for the breakdown and again for every
+  // category drilled into.
+  const MAX_PICKS = 12;
+  // Outlining a neighbourhood parcel by parcel is exact but there can be
+  // thousands of them on screen; past this many the dashed extent alone has to
+  // do, because a highlight that locks the browser is not a highlight.
+  const PICK_PARCEL_CAP = 600;
+
+  function pickLabel(p) {
+    return p.kind === "blk"
+      ? [`${t("block")} ${p.blk}`, p.nbhName].filter(Boolean).join(" ")
+      : p.name;
+  }
+
+  // Does a contain b? Used to keep the set disjoint, because the report sums
+  // its picks: choosing a governorate and a block inside it would count that
+  // block's plots twice and quietly overstate the total.
+  function pickContains(a, b) {
+    if (a.key === b.key) return false;
+    if (a.kind === "gov") return b.gov === a.gov;
+    if (a.kind === "nbh") return b.kind === "blk" && b.gov === a.gov && b.nbh === a.nbh;
+    return false;
+  }
+
+  function togglePick(p) {
+    if (!p) return;
+    if (picks.has(p.key)) {
+      picks.delete(p.key);
+    } else {
+      const covering = [...picks.values()].find((q) => pickContains(q, p));
+      if (covering) {
+        statusEl.textContent = t("pickCovered", pickLabel(covering));
+        return;
+      }
+      if (picks.size >= MAX_PICKS) {
+        statusEl.textContent = t("pickLimit", MAX_PICKS);
+        return;
+      }
+      // Anything this new pick swallows goes, for the same reason.
+      for (const [k, q] of picks) if (pickContains(p, q)) picks.delete(k);
+      picks.set(p.key, p);
+    }
+    afterPicksChanged();
+  }
+
+  function afterPicksChanged() {
+    updateBlockLabels(); // repaints labels, their chosen state, and the outlines
+    updatePlaceLabels();
+    if (!picks.size) { closeReport(); return; }
+    statusEl.textContent = [...picks.values()].map(pickLabel).join(" + ");
+    refreshReport();
+  }
+
+  function drawPicks() {
+    pickHighlight.clearLayers();
+    for (const p of picks.values()) {
+      if (p.kind === "blk") {
+        // Every parcel outlined rather than the block's outer boundary. That
+        // would need a union of the parcels, and this says more anyway: the
+        // extent AND how the block is divided, which is what the number was
+        // clicked to find out.
+        const g = blockGroups.get(p.key);
+        if (!g) continue; // its parcels are not loaded at this view
+        for (const f of g.feats) {
+          L.geoJSON(f, { interactive: false, style: PICK_STYLE }).addTo(pickHighlight);
+        }
+        continue;
+      }
+      // Neighbourhoods and governorates have no boundary in this data -- only
+      // the extent of their parcels -- so that is drawn, dashed, to say "about
+      // here" rather than "exactly this".
+      L.rectangle([[p.bbox[1], p.bbox[0]], [p.bbox[3], p.bbox[2]]], {
+        interactive: false, color: "#e67e22", weight: 2,
+        dashArray: "7,5", fillColor: "#e67e22", fillOpacity: 0.06,
+      }).addTo(pickHighlight);
+      // Plus the parcels on screen that belong to it, which is the exact part.
+      if (p.kind !== "nbh") continue;
+      const mine = labelledFeatures.filter(
+        (f) => (f.properties?.neighborhood_ar ?? f.properties?.neighborhood_en) === p.rawName
+      );
+      if (mine.length > PICK_PARCEL_CAP) continue;
+      for (const f of mine) {
+        L.geoJSON(f, { interactive: false, style: PICK_STYLE }).addTo(pickHighlight);
+      }
     }
   }
 
-  // Which neighbourhood a block belongs to, as the numbers area_report_blk
+  // Which neighbourhood a block belongs to, as the codes area_report_blk
   // needs. The viewport rows carry the neighbourhood's NAME but not its code,
   // so it is resolved against the label set -- by extent first, because two
   // neighbourhoods can share a name and only one of them contains this block.
@@ -2965,27 +3074,68 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return named.find(inside) ?? named[0] ?? nbhoodPlaces.find(inside) ?? null;
   }
 
-  async function selectBlock(key) {
-    // Clicking the chosen block again lets it go, so the outline can be
-    // dismissed without hunting for a close button.
-    if (selectedBlockKey === key) { closeReport(); return; }
-    selectedBlockKey = key;
-    updateBlockLabels(); // repaints the outline and marks the chosen number
+  function pickBlock(g) {
+    const n = nbhoodFor(g);
+    if (!n) return;
+    togglePick({
+      kind: "blk", key: g.key, blk: g.blk, nbhName: g.nbh,
+      gov: n.gov_no, nbh: n.nbhood_no,
+    });
+  }
 
-    const g = blockGroups.get(key);
-    if (!g) return;
-    statusEl.textContent =
-      [`${t("block")} ${g.blk}`, g.nbh, t("areaShown", g.feats.length)].filter(Boolean).join(" · ");
+  function pickNbhood(p) {
+    togglePick({
+      kind: "nbh", key: `nbh:${p.gov_no}:${p.nbhood_no}`,
+      name: placeName(p), rawName: p.name_ar ?? p.name_en,
+      gov: p.gov_no, nbh: p.nbhood_no,
+      bbox: [p.min_lon, p.min_lat, p.max_lon, p.max_lat],
+    });
+  }
 
-    // The breakdown is the owner's; a visitor gets the outline and the count,
-    // which is only what the map already shows them.
+  function pickGov(g) {
+    togglePick({
+      kind: "gov", key: `gov:${g.gov_no}`, name: govName(g.gov_no) || `#${g.gov_no}`,
+      gov: g.gov_no,
+      bbox: [g.min_lon, g.min_lat, g.max_lon, g.max_lat],
+    });
+  }
+
+  // ---- The breakdown for whatever is chosen -------------------------------
+  const reportFor = (p) =>
+    p.kind === "blk" ? authRpc("area_report_blk", { gov: p.gov, nbh: p.nbh, blk: p.blk })
+    : p.kind === "nbh" ? authRpc("area_report_nbh", { gov: p.gov, nbh: p.nbh })
+    : authRpc("area_report_gov", { gov: p.gov });
+
+  // Sums the per-area breakdowns into one. Safe to add up only because the
+  // picks are kept disjoint -- see pickContains.
+  function mergeReports(lists) {
+    const by = new Map();
+    for (const rows of lists) {
+      for (const r of rows ?? []) {
+        const e = by.get(r.category) ?? { ...r, n: 0, area_m2: 0 };
+        e.n = Number(e.n) + Number(r.n ?? 0);
+        e.area_m2 = Number(e.area_m2) + Number(r.area_m2 ?? 0);
+        by.set(r.category, e);
+      }
+    }
+    return [...by.values()].sort((a, b) => b.n - a.n);
+  }
+
+  let reportSeq = 0;
+
+  async function refreshReport() {
+    // The breakdown is the owner's. A visitor keeps the outlines and the
+    // status line, which say no more than the map already shows.
     if (!session) return;
-    const p = nbhoodFor(g);
-    if (!p) return;
-    reportScope = { kind: "blk", gov: p.gov_no, nbh: p.nbhood_no, blk: g.blk };
+    const items = [...picks.values()];
+    reportScope = { kind: "picks", items };
+    const seq = ++reportSeq;
     try {
-      showReport(await authRpc("area_report_blk", { gov: p.gov_no, nbh: p.nbhood_no, blk: g.blk }));
+      const all = await Promise.all(items.map(reportFor));
+      if (seq !== reportSeq) return; // the selection moved on while we waited
+      showReport(mergeReports(all), items.map(pickLabel).join(" + "));
     } catch (err) {
+      if (seq !== reportSeq) return;
       showReportMessage(/401|not signed in/.test(err.message) ? t("signIn") : t("loadFailed"));
       console.error(err);
     }
@@ -2998,6 +3148,36 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // matched without a round trip.
   const placeLabels = L.layerGroup().addTo(map);
   let nbhoodPlaces = [];
+  let govPlaces = [];
+  // Above this, governorate names are noise: their neighbourhoods are all
+  // labelled individually and the governorate is the one thing a reader can
+  // already tell from the shape of the coast.
+  const GOV_MAX_ZOOM = 11;
+
+  // The six governorates, aggregated from the neighbourhood set rather than
+  // fetched -- it is the same parcels either way, and this costs no request.
+  // The anchor is weighted by plot count, so the name sits over the built-up
+  // part instead of the middle of the desert the governorate also contains.
+  function buildGovPlaces() {
+    const by = new Map();
+    for (const p of nbhoodPlaces) {
+      const g = by.get(p.gov_no) ?? {
+        gov_no: p.gov_no, sx: 0, sy: 0, w: 0, plot_count: 0,
+        min_lon: Infinity, min_lat: Infinity, max_lon: -Infinity, max_lat: -Infinity,
+      };
+      g.sx += p.lon * p.plot_count;
+      g.sy += p.lat * p.plot_count;
+      g.w += p.plot_count;
+      g.plot_count += p.plot_count;
+      g.min_lon = Math.min(g.min_lon, p.min_lon);
+      g.min_lat = Math.min(g.min_lat, p.min_lat);
+      g.max_lon = Math.max(g.max_lon, p.max_lon);
+      g.max_lat = Math.max(g.max_lat, p.max_lat);
+      by.set(p.gov_no, g);
+    }
+    for (const g of by.values()) { g.lon = g.sx / g.w; g.lat = g.sy / g.w; }
+    govPlaces = [...by.values()].sort((a, b) => b.plot_count - a.plot_count);
+  }
 
   // How many names to draw at a given zoom. All 195 at once is an unreadable
   // smear until about zoom 13. nbhood_labels returns the busiest first, so
@@ -3028,6 +3208,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       nbhoodPlaces = [];
       return;
     }
+    buildGovPlaces();
     updatePlaceLabels();
     fillAllNbhoods();
   }
@@ -3047,6 +3228,40 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // Skip a name whose box would overlap one already placed. Drawing forty
     // names on top of each other is not more information than drawing twelve.
     const placed = [];
+    const fits = (pt, halfW, halfH) => {
+      const box = [pt.x - halfW, pt.y - halfH, pt.x + halfW, pt.y + halfH];
+      if (placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) {
+        return false;
+      }
+      placed.push(box);
+      return true;
+    };
+
+    // Governorates go down first, so when the two compete for the same patch
+    // of screen the larger place wins it -- which is the right way round when
+    // you are zoomed far enough out to be looking for one.
+    if (z <= GOV_MAX_ZOOM) {
+      const govSize = size + 3;
+      for (const g of govPlaces) {
+        if (!bounds.contains([g.lat, g.lon])) continue;
+        const name = govName(g.gov_no);
+        if (!name) continue;
+        const pt = map.latLngToContainerPoint([g.lat, g.lon]);
+        if (!fits(pt, Math.max(34, name.length * govSize * 0.34), govSize)) continue;
+        const marker = L.marker([g.lat, g.lon], {
+          interactive: true,
+          keyboard: false,
+          icon: L.divIcon({
+            className: `gov-label${picks.has(`gov:${g.gov_no}`) ? " on" : ""}`,
+            html: `<span style="font-size:${govSize}px">${esc(name)}</span>`,
+            iconSize: null,
+          }),
+        });
+        marker.on("click", () => pickGov(g));
+        marker.addTo(placeLabels);
+      }
+    }
+
     // One name per pass. A few places are split across governorates and come
     // back as two rows with the same name -- حدائق السور - الحزام الاخضر is
     // one strip of green belt stored twice -- and drawing the same words twice
@@ -3062,22 +3277,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
       const pt = map.latLngToContainerPoint([p.lat, p.lon]);
       // Arabic and Latin average out close enough for a collision test; this
       // decides whether to draw a label, not where to draw it.
-      const halfW = Math.max(26, name.length * size * 0.3);
-      const halfH = size * 0.9;
-      const box = [pt.x - halfW, pt.y - halfH, pt.x + halfW, pt.y + halfH];
-      if (placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;
-      placed.push(box);
+      if (!fits(pt, Math.max(26, name.length * size * 0.3), size * 0.9)) continue;
       seen.add(name);
       drawn++;
-      L.marker([p.lat, p.lon], {
-        interactive: false,
+      const marker = L.marker([p.lat, p.lon], {
+        interactive: true,
         keyboard: false,
         icon: L.divIcon({
-          className: "place-label",
+          className: `place-label${picks.has(`nbh:${p.gov_no}:${p.nbhood_no}`) ? " on" : ""}`,
           html: `<span style="font-size:${size}px">${esc(name)}</span>`,
           iconSize: null,
         }),
-      }).addTo(placeLabels);
+      });
+      marker.on("click", () => pickNbhood(p));
+      marker.addTo(placeLabels);
     }
   }
 
