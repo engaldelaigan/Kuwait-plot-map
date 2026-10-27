@@ -57,7 +57,12 @@ http
     if ((req.url || "").startsWith("/api/")) return proxyApi(req, res);
     const url = decodeURIComponent((req.url || "/").split("?")[0]);
     const rel = url === "/" ? "index.html" : url.replace(/^\/+/, "");
-    const file = path.join(__dirname, rel);
+    let file = path.join(__dirname, rel);
+
+    // Cloudflare's asset server resolves an extensionless path to the matching
+    // .html file, so /laws is a real address in production. Without the same
+    // rule here the laws page 404s locally and the header link looks broken.
+    if (!path.extname(file) && fs.existsSync(`${file}.html`)) file += ".html";
 
     // don't serve anything outside this directory
     if (!file.startsWith(__dirname) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {

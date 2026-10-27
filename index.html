@@ -761,13 +761,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
     background: var(--accent); border: 1px solid var(--accent); color: #fff;
   }
 
-  #drawBtn, #authBtn {
+  /* .hdr-link is an anchor dressed as one of these, so the signed-in row stays
+     one thing. It is an <a> and not a button because it goes to a separate
+     page: middle-click, open-in-new-tab and copy-address all have to work. */
+  #drawBtn, #authBtn, .hdr-link {
     font: inherit; font-size: 12px; font-weight: 600; padding: 5px 10px;
     border: 1px solid var(--line); border-radius: 6px;
     background: var(--paper); color: var(--ink); cursor: pointer;
   }
+  .hdr-link { text-decoration: none; white-space: nowrap; line-height: 1.4; }
+  .hdr-link:hover { border-color: var(--accent); color: var(--accent); }
   #drawBtn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-  #drawBtn[hidden], #report[hidden], #loginBox[hidden], #drawBar[hidden] { display: none; }
+  #drawBtn[hidden], #report[hidden], #loginBox[hidden], #drawBar[hidden],
+  .hdr-link[hidden] { display: none; }
 
   /* Sits where "Search this area" does, which is hidden while drawing -- the
      two are never useful at the same moment. */
@@ -1018,6 +1024,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       <button id="autoBtn" type="button" data-i18n="autoSetback">Auto setback</button>
       <button id="clearBtn" type="button" data-i18n="clear">Clear</button>
       <button id="drawBtn" type="button" hidden data-i18n="drawArea">Analyse area</button>
+      <!-- A link, not a button that scripts a navigation: it opens a separate
+           page, so it should behave like one -- middle-click, open in a new
+           tab, copy the address. Hidden until signed in, alongside the other
+           owner-only controls. -->
+      <a id="lawsBtn" class="hdr-link" href="/laws" hidden data-i18n="buildingLaws">Building rules</a>
       <button id="authBtn" type="button" data-i18n="signIn">Sign in</button>
       <button id="infoBtn" type="button" title="معلومات · About">&#9432;</button>
       <button id="langBtn" type="button">EN</button>
@@ -1113,6 +1124,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       close: "إغلاق",
       openInMaps: "فتح في خرائط جوجل",
       landUse: "الاستعمال",
+      buildingLaws: "أنظمة البناء",
       zoneSource: "حسب المخطط الهيكلي للبلدية",
       osmSays: "على الطبيعة",
       osmSource: "مصدر: OpenStreetMap (غير رسمي)",
@@ -1237,6 +1249,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       close: "Close",
       openInMaps: "Open in Google Maps",
       landUse: "Land use",
+      buildingLaws: "Building rules",
       zoneSource: "From the municipality's master plan",
       osmSays: "On the ground",
       osmSource: "Source: OpenStreetMap (unofficial)",
@@ -2253,6 +2266,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // "undefined", so it cannot be guarded that way either.
     const nbhBtn = document.getElementById("nbhReportBtn");
     if (nbhBtn) nbhBtn.hidden = !inS;
+    // The building rules are owner-only, so the way in is too. Hiding it is
+    // tidiness rather than the lock -- the page itself asks for a sign-in and
+    // the data is gated on an allowlist in the database.
+    const lawsBtn = document.getElementById("lawsBtn");
+    if (lawsBtn) lawsBtn.hidden = !inS;
     authBtn.textContent = inS ? t("signOut") : t("signIn");
     authBtn.title = inS ? session.email ?? "" : "";
     if (!inS) {
