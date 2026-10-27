@@ -954,28 +954,23 @@ svg.leaflet-zoom-animated{will-change:transform;}
      halo doubles as the hit area. */
   .block-label { pointer-events: auto; cursor: pointer; }
   .block-label > span {
-    color: #8a4b12;
+    color: #fff;
     font-size: 15px;
     font-weight: 800;
     letter-spacing: 0.3px;
+    /* Black outline, white fill. The outline carries the contrast, so the same
+       treatment reads over a pale basemap, a dark one, satellite imagery and
+       any plot colour underneath -- which a light halo does not. And because
+       it is an outline rather than a filled box, it hides none of the parcels
+       the number is sitting on. */
     text-shadow:
-      2px 0 0 #fff, -2px 0 0 #fff, 0 2px 0 #fff, 0 -2px 0 #fff,
-      1.5px 1.5px 0 #fff, -1.5px 1.5px 0 #fff,
-      1.5px -1.5px 0 #fff, -1.5px -1.5px 0 #fff,
-      0 0 7px rgba(255, 255, 255, 0.95);
+      2px 0 0 #000, -2px 0 0 #000, 0 2px 0 #000, 0 -2px 0 #000,
+      1.5px 1.5px 0 #000, -1.5px 1.5px 0 #000,
+      1.5px -1.5px 0 #000, -1.5px -1.5px 0 #000,
+      0 0 6px rgba(0, 0, 0, 0.85);
   }
-  .block-label:hover > span { color: #e67e22; }
-  .block-label.on > span { color: #c2410c; text-decoration: underline; }
-  body.map-dark .block-label > span {
-    color: #f0a759;
-    text-shadow:
-      2px 0 0 #11131a, -2px 0 0 #11131a, 0 2px 0 #11131a, 0 -2px 0 #11131a,
-      1.5px 1.5px 0 #11131a, -1.5px 1.5px 0 #11131a,
-      1.5px -1.5px 0 #11131a, -1.5px -1.5px 0 #11131a,
-      0 0 8px rgba(0, 0, 0, 0.92);
-  }
-  body.map-dark .block-label:hover > span,
-  body.map-dark .block-label.on > span { color: #ffc078; }
+  .block-label:hover > span { color: #ffd08a; }
+  .block-label.on > span { color: #ffb454; text-decoration: underline; }
   #legend[hidden] { display: none; }
   #legend .row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   #legend .sw {
