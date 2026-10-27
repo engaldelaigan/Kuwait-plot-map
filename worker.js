@@ -37,6 +37,12 @@ const PUBLIC_RPC = new Set([
 // the real gate. Listing them here only makes them reachable.
 const AUTHED_RPC = new Set([
   "area_report", "area_plots", "set_plot_type",
+  // The same report for a whole neighbourhood or one block, rather than a
+  // hand-drawn outline. These were missing, which meant the Analyse button and
+  // the block numbers on the map both came back "failed to load": the proxy
+  // 404s anything it has not been told about, and an allowlist is only as
+  // complete as the last thing added to the page.
+  "area_report_nbh", "area_report_blk", "area_plots_nbh", "area_plots_blk",
   // The private building-regulations reference on /laws.html. Listed here only
   // so the proxy will forward it; the database checks the caller against an
   // allowlist of user ids, so a signed-in stranger gets an empty result.

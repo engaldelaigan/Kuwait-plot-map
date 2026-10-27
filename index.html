@@ -794,16 +794,26 @@ svg.leaflet-zoom-animated{will-change:transform;}
   @media (max-width: 760px) { #drawBar button { font-size: 11px; padding: 5px 9px; } }
 
   /* Results of a drawn area. Sits opposite the plot panel so both can be open. */
+  /* Bottom right, and in both directions.
+     Every other corner is spoken for: the zoom buttons, the locate button and
+     the legend share the left column top to bottom, and the layers control
+     owns the top right. At top:52px this sat underneath whichever of those was
+     on its side -- behind the layers control in Arabic, behind the zoom and
+     locate buttons in English -- and Leaflet's controls sit at z-index 800, so
+     it lost both times and the first rows of the breakdown were simply not
+     readable.
+     Anchored to the bottom rather than given a top offset, so it never has to
+     guess how tall the layers control is; max-height keeps it from growing up
+     into it on a short window. */
   #report {
-    position: absolute; top: 52px; left: 10px; z-index: 550;
+    position: absolute; bottom: 30px; right: 10px; z-index: 550;
     background: rgba(246, 244, 238, 0.97);
     border: 1px solid var(--line); border-radius: 8px;
     padding: 10px 12px; font-size: 12px;
     min-width: 210px; max-width: 280px;
-    max-height: calc(100% - 72px); overflow-y: auto;
+    max-height: calc(100% - 230px); overflow-y: auto;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
   }
-  html[dir="rtl"] #report { left: auto; right: 10px; }
   #report h3 { margin: 0 0 6px; font-size: 12px; }
   #report table { border-collapse: collapse; width: 100%; }
   #report td { padding: 2px 0; }
@@ -908,7 +918,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
      that div with an inline transform, so a transform in the stylesheet never
      survives. Placing the div is Leaflet's business; centring the span on it
      is ours. */
-  .place-label, .block-label { pointer-events: none; }
+  .place-label { pointer-events: none; }
   .place-label > span, .block-label > span {
     position: absolute;
     display: block;
@@ -936,24 +946,36 @@ svg.leaflet-zoom-animated{will-change:transform;}
       1.5px -1.5px 0 #11131a, -1.5px -1.5px 0 #11131a,
       0 0 8px rgba(0, 0, 0, 0.92);
   }
-  /* Block numbers are a filled chip, where parcel numbers are bare haloed
-     text. From zoom 17 both are on screen at once, and the shape is what tells
-     you which number you are looking at without reading the label. */
+  /* Block numbers: haloed text like the parcel numbers, told apart by size and
+     colour rather than by a filled chip. The chip was legible but it covered
+     the parcels underneath it, which is the one thing a label sitting in the
+     middle of a block must not do.
+     Clickable -- it selects the block -- so it takes pointer events, and the
+     halo doubles as the hit area. */
+  .block-label { pointer-events: auto; cursor: pointer; }
   .block-label > span {
-    background: rgba(18, 28, 22, 0.9);
-    color: #fff;
-    font-size: 12px;
+    color: #8a4b12;
+    font-size: 15px;
     font-weight: 800;
-    line-height: 1;
-    padding: 4px 8px;
-    border-radius: 999px;
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 1px 3px rgba(0, 0, 0, 0.3);
+    letter-spacing: 0.3px;
+    text-shadow:
+      2px 0 0 #fff, -2px 0 0 #fff, 0 2px 0 #fff, 0 -2px 0 #fff,
+      1.5px 1.5px 0 #fff, -1.5px 1.5px 0 #fff,
+      1.5px -1.5px 0 #fff, -1.5px -1.5px 0 #fff,
+      0 0 7px rgba(255, 255, 255, 0.95);
   }
+  .block-label:hover > span { color: #e67e22; }
+  .block-label.on > span { color: #c2410c; text-decoration: underline; }
   body.map-dark .block-label > span {
-    background: rgba(238, 237, 232, 0.93);
-    color: #12161b;
-    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6);
+    color: #f0a759;
+    text-shadow:
+      2px 0 0 #11131a, -2px 0 0 #11131a, 0 2px 0 #11131a, 0 -2px 0 #11131a,
+      1.5px 1.5px 0 #11131a, -1.5px 1.5px 0 #11131a,
+      1.5px -1.5px 0 #11131a, -1.5px -1.5px 0 #11131a,
+      0 0 8px rgba(0, 0, 0, 0.92);
   }
+  body.map-dark .block-label:hover > span,
+  body.map-dark .block-label.on > span { color: #ffc078; }
   #legend[hidden] { display: none; }
   #legend .row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   #legend .sw {
@@ -2107,6 +2129,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
     highlightLayer.clearLayers();
     highlightedCat = null;
     reportScope = null;
+    // A chosen block is part of the area the report describes, so its outline
+    // goes with it -- including when the report is closed from its own button,
+    // or when choosing a different neighbourhood ends the old one.
+    if (selectedBlockKey) {
+      selectedBlockKey = null;
+      updateBlockLabels();
+    }
   }
 
   function redrawOutline(preview) {
@@ -2808,57 +2837,162 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // nothing to put them against either -- a block number floating over an
   // empty basemap means little.
   const blockLabels = L.layerGroup().addTo(map);
+  const blockHighlight = L.layerGroup().addTo(map);
   const BLOCK_MIN_ZOOM = 15;
+  let blockGroups = new Map();
+  let selectedBlockKey = null;
 
-  function updateBlockLabels() {
-    blockLabels.clearLayers();
-    if (map.getZoom() < BLOCK_MIN_ZOOM || !labelledFeatures.length) return;
-    const bounds = map.getBounds();
+  // Signed area and centroid of a ring, by the shoelace formula.
+  //
+  // Computed in degrees rather than metres. That is not a projection, but a
+  // block spans a few hundred metres, over which the distortion is close
+  // enough to uniform that it cannot shift the centre meaningfully -- and the
+  // answer is only ever used to place a label.
+  function ringCentroid(ring) {
+    let a = 0;
+    let cx = 0;
+    let cy = 0;
+    for (let i = 0, n = ring.length; i < n; i++) {
+      const [x1, y1] = ring[i];
+      const [x2, y2] = ring[(i + 1) % n];
+      const f = x1 * y2 - x2 * y1;
+      a += f;
+      cx += (x1 + x2) * f;
+      cy += (y1 + y2) * f;
+    }
+    if (!a) {
+      // A degenerate ring has no centroid; the vertex mean is the best there is.
+      let sx = 0;
+      let sy = 0;
+      for (const [x, y] of ring) { sx += x; sy += y; }
+      return { lon: sx / ring.length, lat: sy / ring.length, area: 0 };
+    }
+    a *= 0.5;
+    return { lon: cx / (6 * a), lat: cy / (6 * a), area: Math.abs(a) };
+  }
 
-    // One label per block, at the mean of its plots' centroids. Keyed by
-    // neighbourhood as well as number: block 6 exists in dozens of
-    // neighbourhoods, and two of them can be in view at once.
+  // One entry per block in view, keyed by neighbourhood as well as number:
+  // block 6 exists in dozens of neighbourhoods and two can be on screen at
+  // once.
+  function groupBlocks() {
     const groups = new Map();
     for (const f of labelledFeatures) {
       const blk = f.properties?.block_no;
       if (!blk) continue;
       const ring = f.geometry?.coordinates?.[0];
       if (!ring?.length) continue;
-      let lat = 0;
-      let lon = 0;
-      for (const c of ring) { lon += c[0]; lat += c[1]; }
-      const key = `${f.properties.neighborhood_ar ?? f.properties.neighborhood_en ?? ""}/${blk}`;
-      const g = groups.get(key) ?? { blk, lat: 0, lon: 0, n: 0 };
-      g.lat += lat / ring.length;
-      g.lon += lon / ring.length;
-      g.n++;
+      const nbh = f.properties.neighborhood_ar ?? f.properties.neighborhood_en ?? "";
+      const key = `${nbh}\u0001${blk}`;
+      const c = ringCentroid(ring);
+      const g = groups.get(key) ?? { key, blk, nbh, sx: 0, sy: 0, w: 0, feats: [] };
+      // Weighted by each parcel's area, which puts the number in the middle of
+      // the block's LAND. An unweighted mean of parcel centres is pulled
+      // towards whichever corner happens to be subdivided most finely, which
+      // on a block with a few large plots and many small ones is well off
+      // centre.
+      const w = c.area || 1e-12;
+      g.sx += c.lon * w;
+      g.sy += c.lat * w;
+      g.w += w;
+      g.feats.push(f);
       groups.set(key, g);
     }
+    for (const g of groups.values()) {
+      g.lon = g.sx / g.w;
+      g.lat = g.sy / g.w;
+    }
+    return groups;
+  }
 
-    // Biggest blocks first, then drop any chip that would overlap one already
+  function updateBlockLabels() {
+    blockLabels.clearLayers();
+    blockGroups = map.getZoom() < BLOCK_MIN_ZOOM ? new Map() : groupBlocks();
+    // A block panned out of view takes its highlight with it; keeping an
+    // outline for parcels no longer loaded would leave it stranded wherever
+    // the map happened to stop.
+    if (selectedBlockKey && !blockGroups.has(selectedBlockKey)) selectedBlockKey = null;
+    drawBlockHighlight();
+    if (!blockGroups.size) return;
+
+    const bounds = map.getBounds();
+    // Biggest blocks first, then drop any label that would overlap one already
     // placed. A block whose corner just clips the viewport contributes two
-    // plots and an anchor dragged off into its neighbour, so without this the
-    // edges of the screen fill with chips for blocks that are barely on it.
-    const order = [...groups.values()].sort((a, b) => b.n - a.n);
+    // parcels and a centre dragged off into its neighbour, so without this the
+    // edges of the screen fill with numbers for blocks barely on it.
+    const order = [...blockGroups.values()].sort((a, b) => b.feats.length - a.feats.length);
     const placed = [];
     for (const g of order) {
-      const lat = g.lat / g.n;
-      const lon = g.lon / g.n;
-      if (!bounds.contains([lat, lon])) continue;
-      const pt = map.latLngToContainerPoint([lat, lon]);
-      const halfW = 26 + String(g.blk).length * 4;
+      if (!bounds.contains([g.lat, g.lon])) continue;
+      const pt = map.latLngToContainerPoint([g.lat, g.lon]);
+      const halfW = 26 + String(g.blk).length * 5;
       const box = [pt.x - halfW, pt.y - 13, pt.x + halfW, pt.y + 13];
       if (placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;
       placed.push(box);
-      L.marker([lat, lon], {
-        interactive: false,
+      const marker = L.marker([g.lat, g.lon], {
+        interactive: true,
         keyboard: false,
         icon: L.divIcon({
-          className: "block-label",
+          className: `block-label${g.key === selectedBlockKey ? " on" : ""}`,
           html: `<span>${esc(t("block"))} ${esc(g.blk)}</span>`,
           iconSize: null,
         }),
-      }).addTo(blockLabels);
+      });
+      marker.on("click", () => selectBlock(g.key));
+      marker.addTo(blockLabels);
+    }
+  }
+
+  // ---- Choosing a block ---------------------------------------------------
+  function drawBlockHighlight() {
+    blockHighlight.clearLayers();
+    const g = selectedBlockKey && blockGroups.get(selectedBlockKey);
+    if (!g) return;
+    // Every parcel outlined rather than one boundary around the block. The
+    // outer boundary would need a union of the parcels, and this says more:
+    // it shows the block's extent AND how it is divided, which is what the
+    // number is being clicked to find out.
+    for (const f of g.feats) {
+      L.geoJSON(f, {
+        interactive: false,
+        style: { color: "#e67e22", weight: 2.5, fillColor: "#e67e22", fillOpacity: 0.14 },
+      }).addTo(blockHighlight);
+    }
+  }
+
+  // Which neighbourhood a block belongs to, as the numbers area_report_blk
+  // needs. The viewport rows carry the neighbourhood's NAME but not its code,
+  // so it is resolved against the label set -- by extent first, because two
+  // neighbourhoods can share a name and only one of them contains this block.
+  function nbhoodFor(g) {
+    const named = nbhoodPlaces.filter((p) => p.name_ar === g.nbh || p.name_en === g.nbh);
+    const inside = (p) =>
+      g.lon >= p.min_lon && g.lon <= p.max_lon && g.lat >= p.min_lat && g.lat <= p.max_lat;
+    return named.find(inside) ?? named[0] ?? nbhoodPlaces.find(inside) ?? null;
+  }
+
+  async function selectBlock(key) {
+    // Clicking the chosen block again lets it go, so the outline can be
+    // dismissed without hunting for a close button.
+    if (selectedBlockKey === key) { closeReport(); return; }
+    selectedBlockKey = key;
+    updateBlockLabels(); // repaints the outline and marks the chosen number
+
+    const g = blockGroups.get(key);
+    if (!g) return;
+    statusEl.textContent =
+      [`${t("block")} ${g.blk}`, g.nbh, t("areaShown", g.feats.length)].filter(Boolean).join(" · ");
+
+    // The breakdown is the owner's; a visitor gets the outline and the count,
+    // which is only what the map already shows them.
+    if (!session) return;
+    const p = nbhoodFor(g);
+    if (!p) return;
+    reportScope = { kind: "blk", gov: p.gov_no, nbh: p.nbhood_no, blk: g.blk };
+    try {
+      showReport(await authRpc("area_report_blk", { gov: p.gov_no, nbh: p.nbhood_no, blk: g.blk }));
+    } catch (err) {
+      showReportMessage(/401|not signed in/.test(err.message) ? t("signIn") : t("loadFailed"));
+      console.error(err);
     }
   }
 
@@ -2883,10 +3017,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return 195;
   }
   function placeLabelSize(z) {
-    if (z <= 10) return 12;
-    if (z <= 12) return 13.5;
-    if (z <= 14) return 15;
-    return 16;
+    if (z <= 10) return 14;
+    if (z <= 12) return 15.5;
+    if (z <= 14) return 17;
+    return 18;
   }
 
   async function loadPlaceNames() {
