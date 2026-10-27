@@ -893,6 +893,67 @@ svg.leaflet-zoom-animated{will-change:transform;}
     color: #f0efec;
     text-shadow: 0 0 3px #15171b, 0 0 3px #15171b, 0 0 3px #15171b, 0 0 3px #15171b;
   }
+
+  /* Place names and block numbers, drawn by this page rather than read off the
+     basemap.
+     Every name on the map used to come from the OpenStreetMap tiles
+     underneath, and both basemaps run those tiles through a filter --
+     saturate(0.3) on light, invert() on dark -- to stop the landuse tints
+     competing with the plot shading. A filter cannot tell a label from a
+     field, so the names faded with everything else and were close to
+     unreadable zoomed out. Ours sit above the filter and set their own
+     contrast.
+
+     The visible text is an inner span, not the marker div: Leaflet positions
+     that div with an inline transform, so a transform in the stylesheet never
+     survives. Placing the div is Leaflet's business; centring the span on it
+     is ours. */
+  .place-label, .block-label { pointer-events: none; }
+  .place-label > span, .block-label > span {
+    position: absolute;
+    display: block;
+    transform: translate(-50%, -50%);
+    white-space: nowrap;
+  }
+  .place-label > span {
+    color: #0f1d16;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    /* A ring of opaque shadows rather than a blur. One name can cross a parcel
+       fill, a road and water in a single word, and only a solid halo stays
+       legible over all three. */
+    text-shadow:
+      2px 0 0 #fff, -2px 0 0 #fff, 0 2px 0 #fff, 0 -2px 0 #fff,
+      1.5px 1.5px 0 #fff, -1.5px 1.5px 0 #fff,
+      1.5px -1.5px 0 #fff, -1.5px -1.5px 0 #fff,
+      0 0 7px rgba(255, 255, 255, 0.95);
+  }
+  body.map-dark .place-label > span {
+    color: #f6f5f1;
+    text-shadow:
+      2px 0 0 #11131a, -2px 0 0 #11131a, 0 2px 0 #11131a, 0 -2px 0 #11131a,
+      1.5px 1.5px 0 #11131a, -1.5px 1.5px 0 #11131a,
+      1.5px -1.5px 0 #11131a, -1.5px -1.5px 0 #11131a,
+      0 0 8px rgba(0, 0, 0, 0.92);
+  }
+  /* Block numbers are a filled chip, where parcel numbers are bare haloed
+     text. From zoom 17 both are on screen at once, and the shape is what tells
+     you which number you are looking at without reading the label. */
+  .block-label > span {
+    background: rgba(18, 28, 22, 0.9);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 999px;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 1px 3px rgba(0, 0, 0, 0.3);
+  }
+  body.map-dark .block-label > span {
+    background: rgba(238, 237, 232, 0.93);
+    color: #12161b;
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.6);
+  }
   #legend[hidden] { display: none; }
   #legend .row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
   #legend .sw {
@@ -1391,6 +1452,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
     lang = lang === "ar" ? "en" : "ar";
     storage.set("kwplots-lang", lang);
     applyLang();
+    // Labels drawn on the map carry their own text, so they are not reached by
+    // the [data-i18n] sweep inside applyLang -- they have to be redrawn.
+    // Hooked here rather than inside applyLang because that function is
+    // defined, and first called, before the map and these layers exist.
+    updatePlaceLabels();
+    updateBlockLabels();
+    if (!selGov.value) fillAllNbhoods(); // re-sort the list for the new language
     setTimeout(() => map.invalidateSize(), 50);
   });
 
@@ -2731,6 +2799,164 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }
   map.on("zoomend", updateParcelLabels);
 
+  // ---- Block numbers ------------------------------------------------------
+  // Derived from the plots already on screen rather than fetched: plots_public
+  // carries block_no on every row, so a block label costs no request and
+  // cannot disagree with what is drawn.
+  //
+  // Below the zoom where plots load there is nothing to derive them from, and
+  // nothing to put them against either -- a block number floating over an
+  // empty basemap means little.
+  const blockLabels = L.layerGroup().addTo(map);
+  const BLOCK_MIN_ZOOM = 15;
+
+  function updateBlockLabels() {
+    blockLabels.clearLayers();
+    if (map.getZoom() < BLOCK_MIN_ZOOM || !labelledFeatures.length) return;
+    const bounds = map.getBounds();
+
+    // One label per block, at the mean of its plots' centroids. Keyed by
+    // neighbourhood as well as number: block 6 exists in dozens of
+    // neighbourhoods, and two of them can be in view at once.
+    const groups = new Map();
+    for (const f of labelledFeatures) {
+      const blk = f.properties?.block_no;
+      if (!blk) continue;
+      const ring = f.geometry?.coordinates?.[0];
+      if (!ring?.length) continue;
+      let lat = 0;
+      let lon = 0;
+      for (const c of ring) { lon += c[0]; lat += c[1]; }
+      const key = `${f.properties.neighborhood_ar ?? f.properties.neighborhood_en ?? ""}/${blk}`;
+      const g = groups.get(key) ?? { blk, lat: 0, lon: 0, n: 0 };
+      g.lat += lat / ring.length;
+      g.lon += lon / ring.length;
+      g.n++;
+      groups.set(key, g);
+    }
+
+    // Biggest blocks first, then drop any chip that would overlap one already
+    // placed. A block whose corner just clips the viewport contributes two
+    // plots and an anchor dragged off into its neighbour, so without this the
+    // edges of the screen fill with chips for blocks that are barely on it.
+    const order = [...groups.values()].sort((a, b) => b.n - a.n);
+    const placed = [];
+    for (const g of order) {
+      const lat = g.lat / g.n;
+      const lon = g.lon / g.n;
+      if (!bounds.contains([lat, lon])) continue;
+      const pt = map.latLngToContainerPoint([lat, lon]);
+      const halfW = 26 + String(g.blk).length * 4;
+      const box = [pt.x - halfW, pt.y - 13, pt.x + halfW, pt.y + 13];
+      if (placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;
+      placed.push(box);
+      L.marker([lat, lon], {
+        interactive: false,
+        keyboard: false,
+        icon: L.divIcon({
+          className: "block-label",
+          html: `<span>${esc(t("block"))} ${esc(g.blk)}</span>`,
+          iconSize: null,
+        }),
+      }).addTo(blockLabels);
+    }
+  }
+
+  // ---- Place names --------------------------------------------------------
+  // The 195 neighbourhoods, with the point each name is drawn at and the
+  // extent the map fits to when one is searched for. Fetched once: it is a
+  // small, slow-moving set, and holding it is what lets a typed name be
+  // matched without a round trip.
+  const placeLabels = L.layerGroup().addTo(map);
+  let nbhoodPlaces = [];
+
+  // How many names to draw at a given zoom. All 195 at once is an unreadable
+  // smear until about zoom 13. nbhood_labels returns the busiest first, so
+  // what survives a tight budget are the places a reader is most likely to be
+  // looking for.
+  function placeLabelBudget(z) {
+    if (z <= 9) return 10;
+    if (z === 10) return 16;
+    if (z === 11) return 28;
+    if (z === 12) return 48;
+    if (z === 13) return 85;
+    return 195;
+  }
+  function placeLabelSize(z) {
+    if (z <= 10) return 12;
+    if (z <= 12) return 13.5;
+    if (z <= 14) return 15;
+    return 16;
+  }
+
+  async function loadPlaceNames() {
+    try {
+      nbhoodPlaces = await api("rpc/nbhood_labels");
+    } catch (err) {
+      // The map is still a map without its own names, and the tiles carry
+      // some of their own, so this must not take the page down with it.
+      console.error("place names failed:", err);
+      nbhoodPlaces = [];
+      return;
+    }
+    updatePlaceLabels();
+    fillAllNbhoods();
+  }
+
+  function placeName(p) {
+    return (lang === "ar" ? p.name_ar || p.name_en : p.name_en || p.name_ar) || "";
+  }
+
+  function updatePlaceLabels() {
+    placeLabels.clearLayers();
+    if (!nbhoodPlaces.length) return;
+    const z = map.getZoom();
+    const bounds = map.getBounds().pad(0.08);
+    const budget = placeLabelBudget(z);
+    const size = placeLabelSize(z);
+
+    // Skip a name whose box would overlap one already placed. Drawing forty
+    // names on top of each other is not more information than drawing twelve.
+    const placed = [];
+    // One name per pass. A few places are split across governorates and come
+    // back as two rows with the same name -- حدائق السور - الحزام الاخضر is
+    // one strip of green belt stored twice -- and drawing the same words twice
+    // on one screen reads as a bug. nbhoodPlaces is ordered by plot_count, so
+    // the copy that survives is the larger half.
+    const seen = new Set();
+    let drawn = 0;
+    for (const p of nbhoodPlaces) {
+      if (drawn >= budget) break;
+      if (!bounds.contains([p.lat, p.lon])) continue;
+      const name = placeName(p);
+      if (!name || seen.has(name)) continue;
+      const pt = map.latLngToContainerPoint([p.lat, p.lon]);
+      // Arabic and Latin average out close enough for a collision test; this
+      // decides whether to draw a label, not where to draw it.
+      const halfW = Math.max(26, name.length * size * 0.3);
+      const halfH = size * 0.9;
+      const box = [pt.x - halfW, pt.y - halfH, pt.x + halfW, pt.y + halfH];
+      if (placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;
+      placed.push(box);
+      seen.add(name);
+      drawn++;
+      L.marker([p.lat, p.lon], {
+        interactive: false,
+        keyboard: false,
+        icon: L.divIcon({
+          className: "place-label",
+          html: `<span style="font-size:${size}px">${esc(name)}</span>`,
+          iconSize: null,
+        }),
+      }).addTo(placeLabels);
+    }
+  }
+
+  map.on("zoomend", updateBlockLabels);
+  // Place names are the only labels that matter below the zoom where plots
+  // load, so they follow every pan, not just the ones that fetch anything.
+  map.on("moveend", updatePlaceLabels);
+
   // Deselect: hides the panel, the red outline and the side numbers.
   function clearSelection() {
     sideLabels.clearLayers();
@@ -3805,6 +4031,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
     labelledFeatures = features;
     updateParcelLabels();
+    updateBlockLabels();
     updateLegend();
 
     if (matched) showPanel(matched.feature.properties, matched.lyr);
@@ -3998,6 +4225,92 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // opens that plot's panel.
   const q = (s) => encodeURIComponent(s);
 
+  // ---- Searching for a place by name --------------------------------------
+  // The address cascade starts at the governorate, so looking a neighbourhood
+  // up meant already knowing which governorate it was in. The search box could
+  // not help either: free text goes to search_address, which returns parcels.
+  // The label set is already in memory, so this matches a typed name against
+  // all 195 of them locally and fits the map to whichever is chosen.
+  //
+  // Arabic is normalised before comparing, because what someone types and what
+  // the municipality stored differ in ways that carry no meaning: أ/إ/آ for ا,
+  // ى for ي, ة for ه, and the leading ال that is in the stored name but rarely
+  // in what is typed. Without this, "سالمية" does not find "السالمية".
+  const normAr = (s) =>
+    String(s ?? "")
+      .toLowerCase()
+      .replace(/[ً-ْـ]/g, "")
+      .replace(/[أإآٱ]/g, "ا")
+      .replace(/ى/g, "ي")
+      .replace(/ة/g, "ه")
+      .replace(/^ال/, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  function matchPlaces(term) {
+    const s = normAr(term);
+    if (s.length < 2 || !nbhoodPlaces.length) return [];
+    const scored = [];
+    for (const p of nbhoodPlaces) {
+      const ar = normAr(p.name_ar);
+      const en = normAr(p.name_en);
+      // Exact first, then prefix, then anywhere -- typing "جهراء" should put
+      // الجهراء above الجهراء الصناعية, not leave the order to plot counts.
+      const rank =
+        ar === s || en === s ? 0
+        : ar.startsWith(s) || en.startsWith(s) ? 1
+        : ar.includes(s) || en.includes(s) ? 2
+        : -1;
+      if (rank >= 0) scored.push({ rank, p });
+    }
+    scored.sort((a, b) => a.rank - b.rank || b.p.plot_count - a.p.plot_count);
+    return scored.slice(0, 8).map(({ p }) => ({ kind: "area", ...p }));
+  }
+
+  // The parcel-text search, with its failures contained.
+  //
+  // search_address is an unindexed ILIKE over six columns of every plot. A
+  // term that matches nothing scans all 311k rows and hits the statement
+  // timeout, which arrives as a 500 -- and "سالمية" is exactly that case,
+  // because the parcels spell it السالميه. So the lookup most likely to fail
+  // is the one for a place name, which is precisely when we already have the
+  // answer in hand from the label set.
+  //
+  // `tolerate` says a place was matched, so an error here is worth swallowing:
+  // showing the area beats showing a server error. With nothing else to show,
+  // the error is still raised, because then it is the only honest answer.
+  async function addressHits(term, tolerate) {
+    try {
+      return await api(`rpc/search_address?term=${q(term)}&max_rows=25`);
+    } catch (err) {
+      console.error("address search failed:", err);
+      if (!tolerate) throw err;
+      return [];
+    }
+  }
+
+  function govName(govNo) {
+    const g = govRows.find((r) => r.gov_no === govNo);
+    return g ? (lang === "ar" ? g.name_ar || g.name_en : g.name_en || g.name_ar) : "";
+  }
+
+  // Fits the map to a neighbourhood's extent, the same way picking one from
+  // the address cascade does.
+  async function gotoArea(a) {
+    statusEl.textContent = t("searching");
+    clearSelection();
+    skipNextMoveLoad = true;
+    map.fitBounds(
+      [[a.min_lat, a.min_lon], [a.max_lat, a.max_lon]],
+      { padding: [24, 24], animate: false, maxZoom: 17 }
+    );
+    await new Promise((r) => setTimeout(r, 150));
+    const shown = await loadViewport();
+    const drawn = Array.isArray(shown) ? shown.length : 0;
+    statusEl.textContent =
+      drawn >= PLOT_LIMIT ? t("areaPartial", a.plot_count) : t("areaShown", a.plot_count);
+  }
+
   async function runSearch(rawTerm) {
     const term = rawTerm.trim();
     if (!term) return;
@@ -4017,11 +4330,23 @@ svg.leaflet-zoom-animated{will-change:transform;}
     } else if (/^\d+$/.test(term)) {
       rows = await api(`rpc/plot_by_parcel_no?par=${q(term)}`);
     } else {
-      // Free text: street name, neighbourhood, or the name of a named feature
-      // (mosque, co-op, tower), in either language. Several parcels usually
-      // match a street, so these come back as a list to choose from.
-      const hits = await api(`rpc/search_address?term=${q(term)}&max_rows=25`);
-      if (hits.length) return showResults(hits, term);
+      // Free text: a place name, a street, or the name of a named feature
+      // (mosque, co-op, tower), in either language.
+      //
+      // One place whose name IS what was typed goes straight there. That is
+      // the whole point of typing a place name, and making someone pick it out
+      // of a list of parcels on the same street would undo it. Anything less
+      // certain is listed, places first, because a parcel match is a guess at
+      // which parcel while a place match is the area itself.
+      const places = matchPlaces(term);
+      const exact = [normAr(places[0]?.name_ar), normAr(places[0]?.name_en)].includes(normAr(term));
+      if (places.length === 1 && exact) {
+        hideResults();
+        return gotoArea(places[0]);
+      }
+      if (places.length) showResults(places, term);
+      const all = [...places, ...(await addressHits(term, places.length > 0))];
+      if (all.length) return showResults(all, term);
       rows = [];
     }
 
@@ -4078,6 +4403,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
       `<div class="res-head">${t("results", hits.length, term)}</div>` +
       hits
         .map((h, i) => {
+          // A place is a different kind of answer from a parcel -- it is an
+          // area to look at, not a thing to open -- so it is labelled as one
+          // rather than dressed up to look like the rows beneath it.
+          if (h.kind === "area") {
+            const where = [govName(h.gov_no), t("areaShown", h.plot_count)]
+              .filter(Boolean).join(" · ");
+            return `<button type="button" class="res-item" data-i="${i}">
+                      <b>${esc(placeName(h))}</b><span>${esc(where)}</span>
+                    </button>`;
+          }
           const street = pick(h.street_ar, h.street_en);
           const nbh = pick(h.neighborhood_ar, h.neighborhood_en);
           // Lead with the parcel's identity, then where it is -- the same
@@ -4103,7 +4438,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
     for (const btn of resultsEl.querySelectorAll(".res-item")) {
       btn.addEventListener("click", async () => {
         const h = hits[Number(btn.dataset.i)];
+        // Choosing a result ends the search. Without this, a suggestion still
+        // in flight from the last keystroke lands afterwards and re-opens the
+        // list over the map you just navigated to -- and clears the status
+        // line describing it.
+        clearTimeout(suggestTimer);
+        suggestSeq++;
         hideResults();
+        if (h.kind === "area") return gotoArea(h);
         map.setView([h.lat, h.lon], 18, { animate: false });
         await new Promise((r) => setTimeout(r, 120));
         await loadViewport({ highlightGlobalId: h.global_id });
@@ -4162,7 +4504,18 @@ svg.leaflet-zoom-animated{will-change:transform;}
           const rows = await api(`rpc/plot_by_parcel_no?par=${q(term)}`);
           hits = rows.map(plotToResult);
         } else {
-          hits = await api(`rpc/search_address?term=${q(term)}&max_rows=25`);
+          // Places come from memory, so they are listed before the address
+          // lookup has even been asked -- typing a neighbourhood name shows it
+          // at the top immediately rather than after a round trip, and it
+          // survives that lookup failing.
+          const places = matchPlaces(term);
+          // Drawn before the lookup is awaited, not after. A term that names a
+          // place is the term search_address is least able to answer -- it
+          // scans every plot and times out -- so waiting for it would make the
+          // one search guaranteed to succeed the slowest one on the page. The
+          // list is drawn again below once the parcels arrive.
+          if (places.length) showResults(places, term);
+          hits = [...places, ...(await addressHits(term, places.length > 0))];
         }
         // a slower earlier request must not overwrite a newer one
         if (seq !== suggestSeq) return;
@@ -4397,6 +4750,22 @@ svg.leaflet-zoom-animated{will-change:transform;}
     nbhReportBtn.hidden = !session;
   };
 
+  // Every neighbourhood in the country at once, so the list is usable before a
+  // governorate has been chosen. The governorate stays as a way to narrow 195
+  // entries down to a few dozen, rather than a gate you have to pass first:
+  // nobody looking for السالمية should have to remember it is in حولي.
+  //
+  // Sorted by name here, not by the plot_count the server orders by -- that
+  // ordering exists so the busiest places survive a crowded map, which is no
+  // help at all in a dropdown someone is reading down.
+  function fillAllNbhoods() {
+    if (!nbhoodPlaces.length || selGov.value) return;
+    const collator = new Intl.Collator(lang === "ar" ? "ar" : "en");
+    nbhRows = [...nbhoodPlaces].sort((a, b) => collator.compare(placeName(a), placeName(b)));
+    fillSelect(selNbh, t("selNbh"), nbhRows, (r) => r.nbhood_no, nbhLabel);
+    syncShowArea();
+  }
+
   // Report a whole neighbourhood by its code rather than by a hand-drawn
   // outline: no clipped plots at the edge, no accidental spill into the next
   // district, and a grouped count on an indexed column instead of a spatial
@@ -4484,6 +4853,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
     empty(selNbh, "selNbh");
     empty(selBlk, "selBlk");
     empty(selPar, "selPar");
+    // Whichever of this and the place-name fetch finishes last fills the
+    // neighbourhood list; both end by calling it, so neither can leave the
+    // list empty by winning the race.
+    fillAllNbhoods();
   }
 
   // Every level below the one that changed is emptied BEFORE its fetch, not
@@ -4505,7 +4878,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
     empty(selBlk, "selBlk");
     empty(selPar, "selPar");
     syncShowArea();
-    if (!selGov.value) return;
+    // Clearing the governorate goes back to the whole country rather than to
+    // an empty list -- the list was usable before one was picked, so unpicking
+    // one should not take it away.
+    if (!selGov.value) return fillAllNbhoods();
     const rows = await api(`rpc/list_nbhoods?gov=${q(selGov.value)}`);
     if (seq !== cascadeSeq) return;
     nbhRows = rows;
@@ -4520,6 +4896,17 @@ svg.leaflet-zoom-animated{will-change:transform;}
     empty(selPar, "selPar");
     syncShowArea();
     if (!selNbh.value) return;
+    // Picking a neighbourhood out of the whole-country list fills the
+    // governorate in behind it: the block and parcel lookups below are keyed
+    // on both, and setting .value directly does not fire `change`, so this
+    // cannot re-enter the handler above and wipe the choice just made.
+    if (!selGov.value) {
+      const p = nbhoodPlaces.find((x) => String(x.nbhood_no) === selNbh.value);
+      if (p) {
+        selGov.value = String(p.gov_no);
+        selGov._combo?.sync();
+      }
+    }
     // From `plots`, not address_index: the index describes the retired parcel
     // set, and in redeveloped areas its blocks no longer exist. Khiran offered
     // 14 blocks none of which any parcel is in.
@@ -4610,6 +4997,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   loadSession();
   loadLandUseNames();
   loadZoneNames();
+  loadPlaceNames();
   applyLang();
   applyAuthUi();
   initAddressCascade().catch((err) => console.error("address cascade failed:", err));
