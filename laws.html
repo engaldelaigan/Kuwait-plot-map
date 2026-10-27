@@ -77,6 +77,15 @@
   }
   #q { flex: 1; min-width: 180px; }
   #hits { color: var(--muted); font-size: 12px; }
+  /* Segmented, not a dropdown: three options that are always worth seeing at
+     once, because which one is active changes which rules are on screen. */
+  #city { display: flex; gap: 0; }
+  #city button {
+    border-radius: 0; font-size: 12px; padding: 6px 10px; margin-inline-start: -1px;
+  }
+  #city button:first-child { border-start-start-radius: 6px; border-end-start-radius: 6px; margin: 0; }
+  #city button:last-child { border-start-end-radius: 6px; border-end-end-radius: 6px; }
+  #city button.active { background: var(--wash); border-color: var(--accent); color: var(--accent); font-weight: 600; z-index: 1; }
   main { flex: 1; overflow-y: auto; padding: 14px 16px 40px; }
 
   .doc { margin-bottom: 22px; }
@@ -86,11 +95,19 @@
   }
   .doc > .src { font-size: 11px; color: var(--muted); margin: 0 0 10px; }
   .doc > .src a { color: var(--muted); }
+  /* A document can be two documents stacked -- المجمعات السكنية publishes one
+     set of rules خارج مدينة الكويت and another داخلها, both numbered from
+     البند الاول. The part heading is what stops the two reading as duplicates. */
+  .part {
+    font-size: 12px; margin: 14px 0 7px; color: var(--ink); font-weight: 700;
+    background: var(--wash); border-inline-start: 3px solid var(--accent);
+    padding: 6px 10px; border-radius: 4px;
+  }
   .sec {
     background: #fff; border: 1px solid var(--line); border-radius: 8px;
     padding: 11px 14px; margin-bottom: 9px;
   }
-  .sec h3 { font-size: 13px; margin: 0 0 7px; color: var(--ink); }
+  .sec h4 { font-size: 13px; margin: 0 0 7px; color: var(--ink); font-weight: 700; }
   .sec .body { white-space: pre-wrap; font-size: 13px; }
   /* The scraper keeps list items as "• " at the start of a line. */
   .sec .body { padding-inline-start: 2px; }
@@ -132,6 +149,7 @@
     <div id="searchRow">
       <input id="q" type="search" placeholder="ابحث في الاشتراطات… مثل: ارتداد، نسبة البناء، سرداب" />
       <button id="clearQ" type="button">مسح</button>
+      <div id="city"></div>
       <span id="hits"></span>
     </div>
     <main id="out"></main>
@@ -147,6 +165,20 @@
     { key: "residential", label: "سكني" },
     { key: "investment",  label: "استثماري" },
     { key: "commercial",  label: "تجاري" },
+  ];
+
+  // Some documents publish one set of rules خارج مدينة الكويت and another
+  // داخلها, with different building percentages under the same بند number.
+  // Where that happens the row carries it in `part`, and this picks a side.
+  //
+  // It hides a row only when the row's part names the OTHER city. A rule with
+  // no part, or whose part names neither, applies to both and always shows --
+  // most of these documents draw the distinction inside the بند text instead,
+  // which cannot be split without mangling the rule.
+  const CITIES = [
+    { key: "inside",  label: "داخل المدينة", avoid: /خارج\s*مدين/ },
+    { key: "outside", label: "خارج المدينة", avoid: /داخل\s*مدين/ },
+    { key: "all",     label: "الكل",         avoid: null },
   ];
 
   const $ = (id) => document.getElementById(id);
@@ -225,6 +257,7 @@
   // ---- the reference ------------------------------------------------------
   let rows = [];        // everything the account may see
   let tab = store.get("kwlaws-tab") || "residential";
+  let city = store.get("kwlaws-city") || "inside";
   let q = "";
 
   async function load() {
@@ -238,14 +271,21 @@
     render();
   }
 
-  // Filtering happens here rather than per keystroke at the server: 67
-  // sections is nothing to hold in memory, and it makes the search instant.
-  // The database function does the same matching for anything that needs it.
+  // Filtering happens here rather than per keystroke at the server: the whole
+  // reference is well under a hundred sections, which is nothing to hold in
+  // memory, and it makes the search instant. The database function does the
+  // same matching for anything that needs it.
   function matches(r, term) {
     if (!term) return true;
     const t = term.toLowerCase();
-    return (r.section_title ?? "").toLowerCase().includes(t)
+    return (r.part ?? "").toLowerCase().includes(t)
+        || (r.section_title ?? "").toLowerCase().includes(t)
         || (r.body ?? "").toLowerCase().includes(t);
+  }
+
+  function inCity(r) {
+    const avoid = CITIES.find((c) => c.key === city)?.avoid;
+    return !(avoid && r.part && avoid.test(r.part));
   }
 
   function highlight(text, term) {
@@ -261,7 +301,7 @@
     // finds in it. A search applies to the open tab only, so showing hits for
     // the other two would be reporting a search that is not being run.
     $("tabs").innerHTML = TABS.map((t) => {
-      const n = rows.filter((r) => r.plot_type === t.key).length;
+      const n = rows.filter((r) => r.plot_type === t.key && inCity(r)).length;
       return `<button type="button" data-tab="${t.key}" class="${t.key === tab ? "active" : ""}">` +
              `${t.label}<span class="count">${n}</span></button>`;
     }).join("");
@@ -269,9 +309,16 @@
       b.addEventListener("click", () => { tab = b.dataset.tab; store.set("kwlaws-tab", tab); render(); });
     }
 
+    $("city").innerHTML = CITIES.map((c) =>
+      `<button type="button" data-city="${c.key}" class="${c.key === city ? "active" : ""}">${c.label}</button>`
+    ).join("");
+    for (const b of $("city").querySelectorAll("button")) {
+      b.addEventListener("click", () => { city = b.dataset.city; store.set("kwlaws-city", city); render(); });
+    }
+
     // Only ever the open tab. Switching tabs re-runs the same term against the
     // new one rather than carrying results across.
-    const inTab = rows.filter((r) => r.plot_type === tab);
+    const inTab = rows.filter((r) => r.plot_type === tab && inCity(r));
     const shown = inTab.filter((r) => matches(r, q));
     const label = TABS.find((t) => t.key === tab)?.label ?? "";
     $("hits").textContent = q
@@ -281,9 +328,13 @@
     if (!shown.length) {
       // Say which tab came up empty, so a search that found nothing here does
       // not read as a search that found nothing anywhere.
+      // Say which tab came up empty AND whether the city filter is hiding
+      // things, so an empty screen is never a mystery.
+      const cityHint = city === "all" ? ""
+        : ` <br />العرض مقتصر على «${esc(CITIES.find((c) => c.key === city).label)}».`;
       $("out").innerHTML = `<p class="empty">${
         q ? `لا توجد نتائج عن «${esc(q)}» في «${esc(label)}»` : "لا توجد بيانات"
-      }</p>`;
+      }${cityHint}</p>`;
       return;
     }
 
@@ -300,9 +351,17 @@
       html += `<section class="doc"><h2>${esc(doc)}</h2>` +
         `<p class="src">المصدر: <a href="${esc(first.source_url)}" target="_blank" rel="noopener noreferrer">بلدية الكويت</a>` +
         ` · آخر تحديث للنسخة المحفوظة: ${esc(String(first.fetched_at).slice(0, 10))}</p>`;
+      // The part heading is repeated each time it changes rather than printed
+      // once, because a search can leave a document showing بنود from both
+      // halves of it with the first one filtered out.
+      let part = null;
       for (const r of items) {
+        if ((r.part ?? null) !== part) {
+          part = r.part ?? null;
+          if (part) html += `<h3 class="part">${highlight(part, q)}</h3>`;
+        }
         html += `<article class="sec">` +
-          (r.section_title ? `<h3>${highlight(r.section_title, q)}</h3>` : "") +
+          (r.section_title ? `<h4>${highlight(r.section_title, q)}</h4>` : "") +
           `<div class="body">${highlight(r.body, q)}</div></article>`;
       }
       html += `</section>`;
