@@ -3125,10 +3125,26 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }
 
   // ---- The breakdown for whatever is chosen -------------------------------
-  const reportFor = (p) =>
+  const reportCall = (p) =>
     p.kind === "blk" ? authRpc("area_report_blk", { gov: p.gov, nbh: p.nbh, blk: p.blk })
     : p.kind === "nbh" ? authRpc("area_report_nbh", { gov: p.gov, nbh: p.nbh })
     : authRpc("area_report_gov", { gov: p.gov });
+
+  // One retry, for the governorate case specifically. Grouping 90,000 parcels
+  // by category lands at about 2.7 seconds warm and over the 8-second limit
+  // `authenticated` has when the cache is cold -- so the first governorate
+  // chosen after a quiet spell fails and the second always works. Asking twice
+  // is the honest fix available from here; the alternative is a longer timeout
+  // for `authenticated`, which is every registered account, not just ours.
+  async function reportFor(p) {
+    try {
+      return await reportCall(p);
+    } catch (err) {
+      if (p.kind !== "gov") throw err;
+      console.warn("governorate report retried after:", err.message);
+      return reportCall(p);
+    }
+  }
 
   // Sums the per-area breakdowns into one. Safe to add up only because the
   // picks are kept disjoint -- see pickContains.
@@ -3913,6 +3929,41 @@ svg.leaflet-zoom-animated{will-change:transform;}
     for (let i = 0; i < px.length - 1; i++) { cx += px[i][0]; cy += px[i][1]; }
     cx /= px.length - 1; cy /= px.length - 1;
 
+    // The surrounding plots and the kerb lines, so the sheet shows the picture
+    // that was on screen rather than one parcel floating on a basemap. Both
+    // follow their layer switches: printing is a copy of the view, so turning
+    // shading or road edges off should take them off the paper too.
+    //
+    // Drawn from the same sources the map draws from -- labelledFeatures and
+    // the kerb half of snapSegs -- and styled by plotStyle(), so a parcel
+    // cannot come out a different colour on paper than it is on screen.
+    const onPlan = (p) => p[0] >= -40 && p[0] <= PRINT_W + 40 && p[1] >= -40 && p[1] <= PRINT_H + 40;
+
+    const context = !plotFill ? "" : labelledFeatures
+      .filter((f) => f.properties?.global_id !== props.global_id)
+      .map((f) => {
+        const ring = f.geometry?.coordinates?.[0];
+        if (!ring?.length) return "";
+        const q = ring.map(([lo, la]) => toPx(lo, la));
+        if (!q.some(onPlan)) return "";
+        const st = plotStyle(f);
+        return `<polygon points="${q.map((p) => `${p[0]},${p[1]}`).join(" ")}"` +
+               ` fill="${st.fillColor}" fill-opacity="${st.fillOpacity}"` +
+               ` stroke="${st.color}" stroke-width="0.6" />`;
+      })
+      .join("");
+
+    const kerbs = map.getContainer().classList.contains("edges-off") ? "" : snapSegs
+      .filter((s) => s.kind === "kerb")
+      .map((s) => {
+        const [ax, ay] = toPx(s.a[0], s.a[1]);
+        const [bx, by] = toPx(s.b[0], s.b[1]);
+        if (!onPlan([ax, ay]) && !onPlan([bx, by])) return "";
+        return `<line x1="${ax}" y1="${ay}" x2="${bx}" y2="${by}"` +
+               ` stroke="#c0392b" stroke-width="1.2" opacity="0.85" />`;
+      })
+      .join("");
+
     // How much each label can say depends on how much room there is.
     //
     // The old sheet always drew three lines per side -- number, length and
@@ -3982,6 +4033,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
     return `<div class="plan">${imgs}
       <svg viewBox="0 0 ${PRINT_W} ${PRINT_H}" xmlns="http://www.w3.org/2000/svg">
+        ${context}
+        ${kerbs}
         <polygon points="${pts}" fill="rgba(60,110,71,0.18)" stroke="#2f5d3a" stroke-width="2.5" />
         ${pickedOnPlan}
         ${sideLabels}
