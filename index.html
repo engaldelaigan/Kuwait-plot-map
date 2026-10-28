@@ -4806,10 +4806,39 @@ svg.leaflet-zoom-animated{will-change:transform;}
       .replace(/\s+/g, " ")
       .trim();
 
+  // Names people use that the municipality does not.
+  //
+  // بنيدر is the case that found this. The coast there is filed entirely under
+  // شاليهات الجليعة -- 30 of that neighbourhood's 31 parcels sit on the
+  // Bnaider stretch, titled "شاليهات - أملاك دولة" -- and the word بنيدر
+  // appears nowhere except two unrelated facilities, a transmitter station and
+  // a co-op. So searching for it returned those two and nothing else, and the
+  // chalets looked missing when they were only filed elsewhere.
+  //
+  // Matched as an extra route to a real neighbourhood, never as an entry of
+  // its own: the map should still call the place what the municipality calls
+  // it, or the name on screen stops matching the records behind it.
+  const PLACE_ALIASES = [
+    { terms: ["بنيدر", "bnaider", "bneider", "bnaidar"], gov: 3, nbh: 343 },
+  ];
+
+  function aliasHits(s) {
+    const out = [];
+    for (const a of PLACE_ALIASES) {
+      if (!a.terms.some((x) => normAr(x).includes(s) || s.includes(normAr(x)))) continue;
+      const p = nbhoodPlaces.find((x) => x.gov_no === a.gov && x.nbhood_no === a.nbh);
+      if (p) out.push(p);
+    }
+    return out;
+  }
+
   function matchPlaces(term) {
     const s = normAr(term);
     if (s.length < 2 || !nbhoodPlaces.length) return [];
     const scored = [];
+    // Aliases rank with exact matches: someone typing بنيدر wants that coast,
+    // not whatever else happens to contain the letters.
+    for (const p of aliasHits(s)) scored.push({ rank: 0, p });
     for (const p of nbhoodPlaces) {
       const ar = normAr(p.name_ar);
       const en = normAr(p.name_en);
@@ -4823,7 +4852,18 @@ svg.leaflet-zoom-animated{will-change:transform;}
       if (rank >= 0) scored.push({ rank, p });
     }
     scored.sort((a, b) => a.rank - b.rank || b.p.plot_count - a.p.plot_count);
-    return scored.slice(0, 8).map(({ p }) => ({ kind: "area", ...p }));
+    // Deduped, because an alias can point at a neighbourhood whose name also
+    // matches the term, and the same place listed twice reads as two places.
+    const seen = new Set();
+    const out = [];
+    for (const { p } of scored) {
+      const k = `${p.gov_no}:${p.nbhood_no}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ kind: "area", ...p });
+      if (out.length === 8) break;
+    }
+    return out;
   }
 
   // The parcel-text search, with its failures contained.
