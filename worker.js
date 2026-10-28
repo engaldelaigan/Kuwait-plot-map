@@ -26,7 +26,7 @@
 // quietly published plots_history.
 const PUBLIC_RPC = new Set([
   "data_updated_at", "list_land_uses", "list_zones", "plot_setback",
-  "plots_in_bbox", "road_edges_in_bbox", "nbhood_labels",
+  "plots_in_bbox", "road_edges_in_bbox", "nbhood_labels", "area_shape",
   "plot_by_gis", "plot_by_block_parcel", "plot_by_parcel_no",
   "search_address", "area_extent",
   "list_governorates", "list_nbhoods", "list_blocks_v3", "list_parcels_v3",

@@ -2976,14 +2976,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // when the parcels do, and the breakdown -- which the server computes from
   // those codes -- is right the whole time either way.
   const PICK_STYLE = { color: "#e67e22", weight: 2.5, fillColor: "#e67e22", fillOpacity: 0.14 };
+  // A real boundary gets a solid line; the fill stays light so the parcels and
+  // their colours still read through a whole city.
+  const AREA_STYLE = { color: "#e67e22", weight: 3, fillColor: "#e67e22", fillOpacity: 0.08 };
   // Each pick is its own request, both for the breakdown and again for every
   // category drilled into.
   const MAX_PICKS = 12;
-  // Outlining a neighbourhood parcel by parcel is exact but there can be
-  // thousands of them on screen; past this many the dashed extent alone has to
-  // do, because a highlight that locks the browser is not a highlight.
-  const PICK_PARCEL_CAP = 600;
-
   function pickLabel(p) {
     return p.kind === "blk"
       ? [`${t("block")} ${p.blk}`, p.nbhName].filter(Boolean).join(" ")
@@ -3017,6 +3015,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
       // Anything this new pick swallows goes, for the same reason.
       for (const [k, q] of picks) if (pickContains(p, q)) picks.delete(k);
       picks.set(p.key, p);
+      // Fetched after the pick is drawn, not before: the rectangle appears at
+      // once and is replaced by the real outline when it arrives.
+      if (p.kind !== "blk") loadPickShape(p);
     }
     afterPicksChanged();
   }
@@ -3044,23 +3045,46 @@ svg.leaflet-zoom-animated{will-change:transform;}
         }
         continue;
       }
-      // Neighbourhoods and governorates have no boundary in this data -- only
-      // the extent of their parcels -- so that is drawn, dashed, to say "about
-      // here" rather than "exactly this".
+      // An outline derived from the parcels themselves -- see area_shape.
+      if (p.shape) {
+        L.geoJSON(p.shape, { interactive: false, style: AREA_STYLE }).addTo(pickHighlight);
+        continue;
+      }
+      // Only until that arrives, or if there is none: a few neighbourhoods
+      // have too few parcels for a hull to mean anything. Dashed, because a
+      // bounding box says "somewhere in here" and should not be mistaken for
+      // a boundary -- a rectangle round a city bent round a bay takes in a lot
+      // of land that is not that city.
       L.rectangle([[p.bbox[1], p.bbox[0]], [p.bbox[3], p.bbox[2]]], {
         interactive: false, color: "#e67e22", weight: 2,
         dashArray: "7,5", fillColor: "#e67e22", fillOpacity: 0.06,
       }).addTo(pickHighlight);
-      // Plus the parcels on screen that belong to it, which is the exact part.
-      if (p.kind !== "nbh") continue;
-      const mine = labelledFeatures.filter(
-        (f) => (f.properties?.neighborhood_ar ?? f.properties?.neighborhood_en) === p.rawName
-      );
-      if (mine.length > PICK_PARCEL_CAP) continue;
-      for (const f of mine) {
-        L.geoJSON(f, { interactive: false, style: PICK_STYLE }).addTo(pickHighlight);
-      }
     }
+  }
+
+  // Outlines are fetched once each and kept: they are derived from a parcel
+  // set that changes weekly, and re-choosing the same city is common.
+  const shapeCache = new Map();
+
+  async function loadPickShape(p) {
+    const cached = shapeCache.get(p.key);
+    if (cached !== undefined) { p.shape = cached; return; }
+    try {
+      const raw = await api(
+        `rpc/area_shape?gov=${p.gov}` + (p.kind === "nbh" ? `&nbh=${p.nbh}` : "")
+      );
+      // The function returns GeoJSON as text, so PostgREST hands back a JSON
+      // string rather than an object.
+      const shape = typeof raw === "string" ? JSON.parse(raw) : raw;
+      shapeCache.set(p.key, shape);
+      p.shape = shape;
+    } catch (err) {
+      // The rectangle is already on screen and still says roughly where this
+      // is, so a failure here costs nothing but precision.
+      console.error("area outline failed:", err);
+      shapeCache.set(p.key, null);
+    }
+    if (picks.has(p.key)) drawPicks();
   }
 
   // Which neighbourhood a block belongs to, as the codes area_report_blk
