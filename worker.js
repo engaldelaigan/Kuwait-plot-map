@@ -136,6 +136,41 @@ async function streetView(url, env) {
 // row cap, which is a different design, not a rounding tweak.
 const VIEWPORT_TTL = 3600; // plot data changes once a week, on the Friday sync
 
+// When the plot data last changed, as the cache's version stamp.
+//
+// Cached itself, for a minute, so this costs one extra round trip a minute
+// rather than one per viewport. A minute of staleness in the VERSION is
+// harmless -- it only delays the moment the real cache starts missing -- while
+// a minute of staleness in the DATA is the whole problem being solved.
+//
+// If it cannot be read, every request gets a distinct stamp and nothing is
+// served from cache. Slower, and correct: a cache that cannot tell whether it
+// is stale should not be answering.
+const VERSION_TTL = 60;
+
+async function dataVersion(env, ctx) {
+  const key = new Request("https://cache.invalid/data-version", { method: "GET" });
+  const hit = await caches.default.match(key);
+  if (hit) return hit.text();
+  try {
+    const res = await fetch(`${env.SUPABASE_URL}/rest/v1/rpc/data_updated_at`, {
+      headers: {
+        apikey: env.SUPABASE_KEY,
+        authorization: `Bearer ${env.SUPABASE_KEY}`,
+        accept: "application/json",
+      },
+    });
+    if (!res.ok) throw new Error(String(res.status));
+    const v = (await res.text()).replace(/[^0-9A-Za-z:.\-]/g, "").slice(0, 40) || "0";
+    ctx.waitUntil(caches.default.put(key, new Response(v, {
+      headers: { "cache-control": `public, max-age=${VERSION_TTL}` },
+    })));
+    return v;
+  } catch {
+    return `nocache-${Date.now()}`;
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -181,7 +216,16 @@ export default {
       const cacheable = (fn === "plots_in_bbox" || fn === "road_edges_in_bbox")
         && request.method === "GET" && !userToken;
       if (cacheable) {
-        cacheKey = new Request(request.url, { method: "GET" });
+        // Keyed on the data's own version as well as the box, so a sync
+        // invalidates the cache instead of being invisible until it expires.
+        //
+        // Without this a parcel added by a sync could not be seen for an hour
+        // and there was no way to force it: the staleness is at the edge, so
+        // reloading the page does nothing, and the only cure was to pan far
+        // enough to ask for a box nobody had asked for yet. That is a bad
+        // thing to have to explain, and worse to have to wait out.
+        const v = await dataVersion(env, ctx);
+        cacheKey = new Request(`${request.url}&v=${encodeURIComponent(v)}`, { method: "GET" });
         const hit = await caches.default.match(cacheKey);
         if (hit) return hit;
       }
