@@ -1006,6 +1006,55 @@ svg.leaflet-zoom-animated{will-change:transform;}
   .edges-off .kerb-line { display: none; }
 
   #printArea { display: none; }
+  /* ---- The header controls, made to look like controls -------------------
+     Each of these grew its own rule with the same chrome: a 1px var(--line)
+     outline, on a var(--paper) background, sitting on a header that is also
+     var(--paper). A button the same colour as the bar behind it reads as a
+     word, not a thing to press, and the row of them read as a sentence.
+     One rule at the end of the sheet, so it wins over all of them on equal
+     specificity: a white face against the bar, a firmer edge, and a shadow
+     to lift it off. The active states are restated below because this would
+     otherwise paint over them. */
+  #exactBtn, #measureBtn, #autoBtn, #clearBtn, #drawBtn, #authBtn,
+  #infoBtn, #langBtn, #showAreaBtn, #nbhReportBtn, .hdr-link {
+    background: #fff;
+    border: 1px solid #aab5ac;
+    box-shadow: 0 1px 2px rgba(23, 33, 27, 0.12);
+    color: var(--ink);
+    transition: border-color 0.12s, box-shadow 0.12s, background 0.12s;
+  }
+  #exactBtn:hover, #measureBtn:hover, #autoBtn:hover, #clearBtn:hover,
+  #drawBtn:hover, #authBtn:hover, #infoBtn:hover, #langBtn:hover,
+  #showAreaBtn:hover:not(:disabled), #nbhReportBtn:hover:not(:disabled),
+  .hdr-link:hover {
+    border-color: var(--accent);
+    box-shadow: 0 2px 5px rgba(23, 33, 27, 0.18);
+    background: #fff;
+  }
+  /* Pressed-in rather than just darker, so the difference is visible without
+     comparing it to its neighbours. */
+  #exactBtn:active, #measureBtn:active, #autoBtn:active, #clearBtn:active,
+  #drawBtn:active, #authBtn:active, #infoBtn:active, #langBtn:active,
+  #showAreaBtn:active, #nbhReportBtn:active {
+    box-shadow: inset 0 1px 2px rgba(23, 33, 27, 0.18);
+    transform: translateY(0.5px);
+  }
+  #showAreaBtn:disabled, #nbhReportBtn:disabled {
+    background: #f2f0ea; color: #9aa79f; border-color: var(--line);
+    box-shadow: none;
+  }
+  /* A control that is ON stays the accent colour -- that distinction matters
+     more than the one above, so it is reasserted after it. */
+  #measureBtn.active, #exactBtn.active, #autoBtn.active, #drawBtn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    box-shadow: 0 1px 3px rgba(47, 93, 58, 0.4);
+  }
+  /* The two owner-only controls carry the accent in their edge, so the row
+     reads at a glance as "everyone's tools, then mine". */
+  #drawBtn:not(.active), .hdr-link { border-color: #7da88a; color: #2f5d3a; }
+
   @media print {
     #app { display: none !important; }
     #printArea {
@@ -1014,19 +1063,51 @@ svg.leaflet-zoom-animated{will-change:transform;}
       color: #000;
       font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
     }
-    #printArea h1 {
-      font-size: 16pt; margin: 0 0 8px; padding-bottom: 6px;
-      border-bottom: 2px solid #2f5d3a;
+    /* A masthead, so the sheet identifies itself before it says anything.
+       Printed out of context -- filed, handed over, photographed -- a page
+       that opens straight into "Parcel 10" does not say what it is or where
+       it came from. */
+    #printArea .masthead {
+      display: flex; justify-content: space-between; align-items: baseline;
+      border-bottom: 2.5pt solid #2f5d3a; padding-bottom: 4px; margin-bottom: 10px;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    #printArea .masthead .mark {
+      font-size: 11pt; font-weight: 800; color: #2f5d3a; letter-spacing: 0.2px;
+    }
+    #printArea .masthead .doctype {
+      font-size: 8pt; text-transform: uppercase; letter-spacing: 1.2px; color: #6a746d;
+    }
+    #printArea h1 { font-size: 17pt; margin: 0; line-height: 1.2; }
+    #printArea .subtitle {
+      margin: 2px 0 12px; font-size: 10pt; color: #6a746d;
+    }
+    /* Numbers read left to right even inside an Arabic paragraph. */
+    #printArea .num {
+      direction: ltr; unicode-bidi: isolate; white-space: nowrap;
+      font-variant-numeric: tabular-nums;
     }
     #printArea table { border-collapse: collapse; font-size: 10pt; }
     /* Facts as a grid of small label/value cells rather than a four-column
        table. The table could not wrap sensibly and left long street names
        squashed into an 18% column. */
+    /* The facts as a bordered panel rather than loose text on the page: it
+       reads as a record, and it separates the identity of the parcel from the
+       drawing of it. */
     #printArea .meta {
       display: grid; grid-template-columns: repeat(3, 1fr);
-      gap: 7px 16px; margin: 0 0 12px;
+      gap: 0; margin: 0 0 14px;
+      border: 1pt solid #c3cbc5; border-radius: 2pt; overflow: hidden;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
-    #printArea .meta .cell { break-inside: avoid; }
+    #printArea .meta .cell {
+      break-inside: avoid; padding: 6px 10px;
+      border-inline-start: 1pt solid #dfe4e0; border-top: 1pt solid #dfe4e0;
+    }
+    /* No rule along the outer edge or above the first row -- the panel border
+       is already there, and doubling it looks like a mistake. */
+    #printArea .meta .cell:nth-child(3n + 1) { border-inline-start: 0; }
+    #printArea .meta .cell:nth-child(-n + 3) { border-top: 0; }
     #printArea .meta dt {
       font-size: 7.5pt; text-transform: uppercase; letter-spacing: 0.4px;
       color: #6a746d; margin: 0 0 1px;
@@ -1044,6 +1125,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
     }
     #printArea .plan img { position: absolute; width: 256px; height: 256px; }
     #printArea .plan svg { position: absolute; left: 0; top: 0; width: 620px; height: 430px; }
+    /* The labels on the plan are lengths and setbacks, and the sheet is a
+       right-to-left document, so without this they print as "m 32.7". */
+    #printArea .plan svg text { direction: ltr; unicode-bidi: isolate; }
     #printArea .plan .attrib {
       position: absolute; right: 3px; bottom: 2px; font-size: 7pt; color: #333;
       background: rgba(255,255,255,0.75); padding: 0 3px;
@@ -1077,8 +1161,23 @@ svg.leaflet-zoom-animated{will-change:transform;}
     }
     #printArea .note { margin: 6px 0 0; font-size: 8.5pt; color: #777; }
     #printArea .foot {
-      margin-top: 16px; padding-top: 6px; border-top: 1px solid #ccd2cd;
+      margin-top: 18px; padding-top: 6px; border-top: 1pt solid #ccd2cd;
       font-size: 8pt; color: #555;
+    }
+    #printArea .foot p { margin: 0 0 3px; }
+    #printArea .foot .footline {
+      display: flex; justify-content: space-between; gap: 12px; margin: 0;
+    }
+    /* The record's own identifier, so a sheet on a desk can be traced back to
+       the parcel it describes. */
+    #printArea .foot .ref {
+      font-family: ui-monospace, Consolas, monospace; font-size: 7pt;
+      color: #8a918c; direction: ltr; unicode-bidi: isolate;
+    }
+    /* Alternating rows, because these tables are read across to a number. */
+    #printArea .sides tbody tr:nth-child(even) td {
+      background: #f6f8f6;
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
     @page { margin: 14mm; }
   }
@@ -1269,6 +1368,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       reportCapped: "الحد الأقصى ٢٠٠٠٠ قسيمة — النتيجة غير مكتملة",
       areaShown: (n) => `${n} قسيمة`,
       areaPartial: (n) => `${n} قسيمة — العرض غير مكتمل، قرّب أكثر`,
+      brand: "قسائم الكويت",
+      printDocType: "بيان قسيمة",
       pickLimit: (n) => `الحد الأقصى ${n} مناطق مختارة`,
       pickCovered: (name) => `مشمولة أصلاً ضمن «${name}»`,
       selNbh: "اختر المنطقة",
@@ -1399,6 +1500,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       reportCapped: "Capped at 20,000 plots — result is incomplete",
       areaShown: (n) => `${n} plots`,
       areaPartial: (n) => `${n} plots — view truncated, zoom in`,
+      brand: "Kuwait Plots",
+      printDocType: "Parcel sheet",
       pickLimit: (n) => `At most ${n} areas at once`,
       pickCovered: (name) => `Already inside “${name}”`,
       selNbh: "Select neighbourhood",
@@ -3912,6 +4015,17 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return out;
   }
 
+  // A measurement, kept in logical order inside Arabic text.
+  //
+  // "119.8 m" sits in a right-to-left paragraph, and bidi reorders a run of
+  // Latin digits followed by a Latin unit, so it printed as "m 119.8". Every
+  // number on the sheet was backwards. Isolating the run fixes the order
+  // without forcing the whole cell left-to-right, which would strand the
+  // Arabic labels beside it.
+  function num(html) {
+    return `<span class="num">${html}</span>`;
+  }
+
   // The plot drawn over the basemap, in printed-pixel space.
   function buildPrintMap(props, setbacks) {
     const plan = printMapPlan(props.geom);
@@ -4087,17 +4201,22 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // Long lists ran down a whole second page one row at a time. Split into
     // columns of at most 12 so a 24-sided parcel is two short columns, not a
     // ribbon.
+    // Balanced, not filled: at 12 per column a 13-sided parcel gave a full
+    // column beside a single stray row, which reads as a mistake. Columns of
+    // seven and six do not.
     const PER_COL = 12;
+    const colCount = Math.max(1, Math.ceil(props.sides.length / PER_COL));
+    const per = Math.ceil(props.sides.length / colCount);
     const cols = [];
-    for (let i = 0; i < props.sides.length; i += PER_COL) cols.push(props.sides.slice(i, i + PER_COL));
+    for (let i = 0; i < props.sides.length; i += per) cols.push(props.sides.slice(i, i + per));
     const sidesTables = cols
       .map((col) => {
         const body = col
           .map((s) => {
             const sb = setbacks.get(s.n);
             const picked = pickedSides.has(s.n) ? ' class="picked"' : "";
-            return `<tr${picked}><td>${s.n}</td><td>${fmtSide(s.length)}</td>` +
-                   (anySetback ? `<td>${sb == null ? "—" : sb.toFixed(2) + " m"}</td>` : "") + `</tr>`;
+            return `<tr${picked}><td>${s.n}</td><td>${num(fmtSide(s.length))}</td>` +
+                   (anySetback ? `<td>${sb == null ? "—" : num(sb.toFixed(2) + " m")}</td>` : "") + `</tr>`;
           })
           .join("");
         return `<table class="sides"><thead><tr><th>${t("side")}</th><th>${t("length")}</th>` +
@@ -4121,24 +4240,45 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // neighbourhood and street three times over -- in the title, again in a
     // subtitle, and again in the table under it.
     const cell = (label, value) => `<div class="cell"><dt>${label}</dt><dd>${value}</dd></div>`;
+    // Only the parts that exist. "القسيمة — — القطعة 10" was what a parcel
+    // with no number printed as, and an em dash standing in for an absent
+    // field reads as a typesetting fault rather than a missing value.
+    const idParts = [
+      props.parcel_no ? `${t("parcel")} ${props.parcel_no}` : null,
+      props.block_no ? `${t("block")} ${props.block_no}` : null,
+    ].filter(Boolean);
+    const heading = idParts.length ? idParts.join(" &mdash; ") : (nbh ?? t("parcel"));
+    const printedAt = new Date().toLocaleString(lang === "ar" ? "ar-KW" : "en-GB");
+
     document.getElementById("printArea").innerHTML = `
-      <h1>${t("parcel")} ${props.parcel_no ?? "—"} &mdash; ${t("block")} ${props.block_no ?? "—"}</h1>
+      <div class="masthead">
+        <span class="mark">${t("brand")}</span>
+        <span class="doctype">${t("printDocType")}</span>
+      </div>
+      <h1>${heading}</h1>
+      <p class="subtitle">${[nbh, props.governorate].filter(Boolean).join(" &middot; ") || "&nbsp;"}</p>
       <div class="meta">
         ${cell(t("neighborhood"), nbh ?? "—")}
         ${cell(t("street"), street ?? "—")}
         ${cell(t("house"), props.house_no ?? "—")}
-        ${cell(t("area"), area == null ? "—" : fmtNum(area, "m&sup2;"))}
+        ${cell(t("area"), area == null ? "—" : num(fmtNum(area, "m&sup2;")))}
         ${cell(t("landUse"), landUseText(props))}
-        ${cell(t("perimeter"), fmtSide(perimeter))}
+        ${cell(t("perimeter"), num(fmtSide(perimeter)))}
       </div>
       ${planHtml}
       <div class="sides-wrap">${sidesTables}</div>
       ${chosen.length
         ? `<p class="picked-total"><b>${t("sidesPicked", chosen.length)}</b> ` +
-          `(${chosen.map((s) => s.n).join(" + ")}) = <b>${fmtSide(chosenTotal)}</b></p>`
+          `(${num(chosen.map((s) => s.n).join(" + "))}) = <b>${num(fmtSide(chosenTotal))}</b></p>`
         : ""}
       ${ctx ? "" : `<p class="note">${t("setbackUnavailable")}</p>`}
-      <p class="foot">${t("source")}. ${t("printed")}: ${new Date().toLocaleString(lang === "ar" ? "ar-KW" : "en-GB")}.</p>
+      <div class="foot">
+        <p>${t("source")}</p>
+        <p class="footline">
+          <span>${t("printed")}: ${printedAt}</span>
+          <span class="ref">${props.global_id ?? ""}</span>
+        </p>
+      </div>
     `;
     if (plan) await preloadTiles(plan.urls.map((u) => u.url));
     window.print();
