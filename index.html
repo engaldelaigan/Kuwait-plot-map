@@ -4824,21 +4824,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
       .replace(/\s+/g, " ")
       .trim();
 
-  // Names people use that the municipality does not.
+  // Names people use that the municipality does not, each routed to a real
+  // neighbourhood. An alias is never an entry of its own: the map keeps
+  // calling a place what the municipality calls it, or the name on screen
+  // stops matching the records behind it.
   //
-  // بنيدر is the case that found this. The coast there is filed entirely under
-  // شاليهات الجليعة -- 30 of that neighbourhood's 31 parcels sit on the
-  // Bnaider stretch, titled "شاليهات - أملاك دولة" -- and the word بنيدر
-  // appears nowhere except two unrelated facilities, a transmitter station and
-  // a co-op. So searching for it returned those two and nothing else, and the
-  // chalets looked missing when they were only filed elsewhere.
-  //
-  // Matched as an extra route to a real neighbourhood, never as an entry of
-  // its own: the map should still call the place what the municipality calls
-  // it, or the name on screen stops matching the records behind it.
-  const PLACE_ALIASES = [
-    { terms: ["بنيدر", "bnaider", "bneider", "bnaidar"], gov: 3, nbh: 343 },
-  ];
+  // Empty, deliberately. بنيدر was listed here pointing at شاليهات الجليعة,
+  // which was wrong: شاليهات بنيدر is its own neighbourhood, number 344, and
+  // it is in the municipality's Neighborhood layer with a 3.58 km² boundary.
+  // What it has no parcels at all -- the parcel layer publishes none inside
+  // it, so there is nothing for nbhood_places to build an entry from. Sending
+  // someone typing بنيدر to the next beach up was worse than finding nothing,
+  // because a cadastral map that quietly shows you the wrong coast is not a
+  // map you can use. The fix is the neighbourhood boundaries, not an alias.
+  const PLACE_ALIASES = [];
 
   function aliasHits(s) {
     const out = [];
