@@ -2607,6 +2607,24 @@ svg.leaflet-zoom-animated{will-change:transform;}
     clearSelection();
     closeReport();
     drawLayer.clearLayers();
+    hideResults();
+    // The search is part of what is on screen, so Clear clears it too. Leaving
+    // a governorate, a neighbourhood and a block still filled in after
+    // everything else had gone meant the next search started from the last
+    // one's leftovers -- and the only way to empty them was to walk back up
+    // the four lists by hand.
+    const searchBox = document.getElementById("searchInput");
+    if (searchBox) searchBox.value = "";
+    if (selGov) {
+      selGov.value = "";
+      selGov._combo?.sync();
+      empty(selBlk, "selBlk");
+      empty(selPar, "selPar");
+      // Back to every neighbourhood in the country rather than an empty list:
+      // that is the state the page opens in.
+      fillAllNbhoods();
+      syncShowArea();
+    }
     statusEl.textContent = "";
   });
 
@@ -4832,6 +4850,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return out;
   }
 
+  const tight = (s) => s.replace(/\s+/g, "");
+
   function matchPlaces(term) {
     const s = normAr(term);
     if (s.length < 2 || !nbhoodPlaces.length) return [];
@@ -4844,10 +4864,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
       const en = normAr(p.name_en);
       // Exact first, then prefix, then anywhere -- typing "جهراء" should put
       // الجهراء above الجهراء الصناعية, not leave the order to plot counts.
+      // Spacing in these names is not meaningful and is not written
+      // consistently: the parcel layer stores "سعد العبد الله", which nobody
+      // types -- they type "سعد العبدالله" and found nothing. Compared again
+      // with spaces removed, ranked below the real matches, so an exact name
+      // still wins.
       const rank =
         ar === s || en === s ? 0
         : ar.startsWith(s) || en.startsWith(s) ? 1
         : ar.includes(s) || en.includes(s) ? 2
+        : tight(ar).includes(tight(s)) || tight(en).includes(tight(s)) ? 3
         : -1;
       if (rank >= 0) scored.push({ rank, p });
     }
