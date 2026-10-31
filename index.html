@@ -468,10 +468,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
   #addrForm .combo { position: relative; flex: 1 1 80px; min-width: 80px; display: flex; }
   #addrForm .combo select { display: none; }
   /* The parcel list is empty -- and so disabled -- until a block is chosen,
-     and the number box beside it now reaches the same parcels without one. It
-     takes its space back only when it has something in it, which keeps the row
-     on one line in the state it spends most of its time in. */
-  #addrForm .combo[data-for="selPar"].disabled { display: none; }
+     and it used to give up its space while it was, to keep the row on one
+     line. That made the field order change under you: the number box sat
+     where the parcel picker would appear, and appeared to move when it did.
+     The four pickers hold their places now and the disabled one just greys
+     out, so the row reads the same whatever state it is in. */
   #addrForm .combo input {
     font: inherit;
     font-size: 12px;
@@ -1234,15 +1235,21 @@ svg.leaflet-zoom-animated{will-change:transform;}
         <button type="submit" data-i18n="search">Search</button>
       </form>
       <div id="addrForm" hidden>
+        <!-- Governorate, city, block, parcel, in that order and always in that
+             order: it is how an address is written and how it is read out, and
+             the row is a cascade, so a field that moves is a field you have to
+             look for. The number box used to sit between the city and the
+             block, which put a shortcut in the middle of the sequence it
+             shortcuts. It goes last now, after the pickers it stands in for. -->
         <select id="selGov"></select>
         <select id="selNbh" disabled></select>
-        <!-- The parcel or house number, typed straight in. The two pickers
-             after it still work, but nothing makes you walk through them to
-             reach a number you already know. -->
-        <input id="quickNo" type="search" inputmode="numeric"
-               data-i18n-ph="quickNoPh" data-i18n-title="quickNoTitle" disabled />
         <select id="selBlk" disabled></select>
         <select id="selPar" disabled></select>
+        <!-- The parcel or house number, typed straight in. The pickers before
+             it still work, but nothing makes you walk through them to reach a
+             number you already know. -->
+        <input id="quickNo" type="search" inputmode="numeric"
+               data-i18n-ph="quickNoPh" data-i18n-title="quickNoTitle" disabled />
         <button id="showAreaBtn" type="button" data-i18n="showArea" disabled>Show</button>
         <button id="nbhReportBtn" type="button" hidden data-i18n="analyseNbh" disabled>Analyse</button>
       </div>
@@ -5895,16 +5902,26 @@ svg.leaflet-zoom-animated{will-change:transform;}
     empty(selPar, "selPar");
     syncShowArea();
     if (!selNbh.value) return;
-    // Picking a neighbourhood out of the whole-country list fills the
-    // governorate in behind it: the block and parcel lookups below are keyed
-    // on both, and setting .value directly does not fire `change`, so this
-    // cannot re-enter the handler above and wipe the choice just made.
-    if (!selGov.value) {
-      const p = nbhoodPlaces.find((x) => String(x.nbhood_no) === selNbh.value);
-      if (p) {
-        selGov.value = String(p.gov_no);
-        selGov._combo?.sync();
-      }
+    // The governorate follows the city every time, not only while it is empty.
+    // Nothing refills the city list after a pick, so the whole country stays
+    // listed and the next city can be anywhere in it -- and a guard of
+    // `if (!selGov.value)` left the first city's governorate sitting there.
+    // Picking السالميه and then المطلاع asked حولي for المطلاع's blocks and got
+    // none back: an empty list, no error, nothing to say the address had been
+    // read in the wrong governorate.
+    //
+    // Found by position in the list, not by code. Option i + 1 holds nbhRows[i]
+    // -- the pairing refreshSelectPlaceholders already relies on -- which is
+    // exact, where a search by code is not: 907 is منطقة المعارض جنوب خيطان in
+    // الفروانية and العقيله in الأحمدي, and a find by code alone answers with
+    // whichever of the two it reaches first.
+    //
+    // Setting .value does not fire `change`, so this cannot re-enter the
+    // handler above and wipe the choice just made.
+    const place = nbhRows[selNbh.selectedIndex - 1];
+    if (place && String(place.gov_no) !== selGov.value) {
+      selGov.value = String(place.gov_no);
+      selGov._combo?.sync();
     }
     // From `plots`, not address_index: the index describes the retired parcel
     // set, and in redeveloped areas its blocks no longer exist. Khiran offered
