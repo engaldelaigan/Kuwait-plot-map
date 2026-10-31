@@ -1253,7 +1253,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       <label id="perpWrap"><input type="checkbox" id="perpChk" checked /> <span data-i18n="perp">&perp; to edge</span></label>
       <button id="exactBtn" type="button" data-i18n="exactBtn">Exact</button>
       <button id="measureBtn" type="button" data-i18n="measure">Measure</button>
-      <button id="autoBtn" type="button" data-i18n="autoSetback">Auto setback</button>
+      <button id="autoBtn" type="button" data-i18n="autoSetback">Street distance</button>
       <button id="clearBtn" type="button" data-i18n="clear">Clear</button>
       <button id="drawBtn" type="button" hidden data-i18n="drawArea">Analyse area</button>
       <!-- A link, not a button that scripts a navigation: it opens a separate
@@ -1428,15 +1428,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
       snapStart: "التثبيت على الخطوط",
       perp: "عمودي على الحد",
       measure: "قياس",
-      autoSetback: "الارتداد",
+      autoSetback: "مسافة الشارع",
       autoNoPlot: "اختر قسيمة أولاً",
       autoZoom: "قرّب أكثر لتحميل حافة الشارع",
       autoNone: "لا يوجد شارع مقابل هذه القسيمة",
-      setbackHint: "انقر على حد القسيمة لقياس الارتداد",
+      setbackHint: "انقر على حد القسيمة لقياس المسافة إلى الشارع",
       setbackNoEdge: "انقر على حد قسيمة",
-      setbackCol: "الارتداد",
+      setbackCol: "المسافة إلى الشارع",
       north: "ش",
-      setbackUnavailable: "الارتداد غير متاح: قرّب الخريطة وفعّل طبقة حافة الشارع قبل الطباعة.",
+      setbackUnavailable: "المسافة إلى الشارع غير متاحة: قرّب الخريطة وفعّل طبقة حافة الشارع قبل الطباعة.",
       // Arabic has a dual, so "2 أضلاع" is wrong -- it takes ضلعين. A plot
       // never fronts more than a handful of streets, so the plural form only
       // needs to cover 3 and up.
@@ -1563,15 +1563,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
       snapStart: "Snap to lines",
       perp: "⊥ to edge",
       measure: "Measure",
-      autoSetback: "Auto setback",
+      autoSetback: "Street distance",
       autoNoPlot: "Select a plot first",
       autoZoom: "Zoom in to load the road edge",
       autoNone: "No street faces this plot",
-      setbackHint: "Click a plot boundary to measure the setback",
+      setbackHint: "Click a plot boundary to measure the distance to the street",
       setbackNoEdge: "Click on a plot boundary",
-      setbackCol: "Setback",
+      setbackCol: "Distance to street",
       north: "N",
-      setbackUnavailable: "Setbacks unavailable: zoom in and switch on the road-edge layer before printing.",
+      setbackUnavailable: "Distance to street unavailable: zoom in and switch on the road-edge layer before printing.",
       autoDone: (n) => `${n} side${n === 1 ? "" : "s"} measured`,
       clear: "Clear",
       exactBtn: "Exact dims",
@@ -1745,7 +1745,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       // to switch them on, loading them was pure cost.
       {
         "تظليل القسائم · Plot shading": shadingLayer,
-        "خطوط الارتداد · Road edges": edgeLinesLayer,
+        "حافة الشارع · Road edges": edgeLinesLayer,
       },
       // Expanded is handy on a desktop; on a phone it covers a third of the
       // map, so it collapses to an icon there.
@@ -1992,7 +1992,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${m.toFixed(2)} m`;
   }
 
-  // ---- Setback (الارتداد) -------------------------------------------------
+  // ---- Distance to street (المسافة إلى الشارع) ----------------------------
+  // Named for what it measures, which is not الارتداد. الارتداد is the
+  // regulatory building setback -- wall to plot boundary, fixed by قرار
+  // 206/2009 and by the zoning of the plot. What this measures is plot
+  // boundary to kerb: a fact about where the street is, carrying no statement
+  // about where you may build. The two are unrelated, and a plot can sit 1 m
+  // from the kerb while owing 5 m of الارتداد.
+  //
+  // The identifiers below still read setback: renaming them would churn the
+  // measuring code to no end. The strings the reader sees say المسافة إلى
+  // الشارع throughout, as the About note and the detail panel always did --
+  // only the button, the print column and the hints had kept the wrong word,
+  // which left the button and the panel row naming one number differently.
   // A mode, not a one-shot action. Switching it on draws the perpendicular from
   // every street-facing side of the selected plot to the kerb; while it stays
   // on, clicking anywhere on a plot boundary adds one more line from exactly
