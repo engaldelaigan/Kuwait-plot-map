@@ -2444,9 +2444,17 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // saying 8 would light up a different set.
   let reportScope = null; // { kind: "shape", ring } | { kind: "nbh", gov, nbh }
 
-  const plotsFor = (p, cat) =>
-    p.kind === "blk" ? authRpc("area_plots_blk", { gov: p.gov, nbh: p.nbh, blk: p.blk, cat })
-    : p.kind === "nbh" ? authRpc("area_plots_nbh", { gov: p.gov, nbh: p.nbh, cat })
+  // Over every code the place was filed under, so the parcels painted are the
+  // ones the row counted. A block exists under one code and comes back empty
+  // from the others, which costs a request and keeps the answer whole when
+  // the overlapping extents make it ambiguous which code a block sits in.
+  const plotsFor = async (p, cat) =>
+    p.kind === "blk"
+      ? (await overCodes(p.gov, p.nbh, (n) =>
+          authRpc("area_plots_blk", { gov: p.gov, nbh: n, blk: p.blk, cat }))).flat()
+    : p.kind === "nbh"
+      ? (await overCodes(p.gov, p.nbh, (n) =>
+          authRpc("area_plots_nbh", { gov: p.gov, nbh: n, cat }))).flat()
     : authRpc("area_plots_gov", { gov: p.gov, cat });
 
   async function highlightCategory(cat, row) {
@@ -2465,14 +2473,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
         // number in the row counted.
         s?.kind === "picks"
           ? (await Promise.all(s.items.map((p) => plotsFor(p, cat)))).flat()
-          : s?.kind === "blk"
-            ? await authRpc("area_plots_blk", { gov: s.gov, nbh: s.nbh, blk: s.blk, cat })
-            : s?.kind === "nbh"
-              ? await authRpc("area_plots_nbh", { gov: s.gov, nbh: s.nbh, cat })
-              : await authRpc("area_plots", {
-                  shape: JSON.stringify({ type: "Polygon", coordinates: [s.ring] }),
-                  cat,
-                });
+          // Through plotsFor as well, so a place filed under several codes
+          // paints all of its parcels here too and not just the busiest
+          // code's -- the row's count came from all of them.
+          : s?.kind === "blk" || s?.kind === "nbh"
+            ? await plotsFor(s, cat)
+            : await authRpc("area_plots", {
+                shape: JSON.stringify({ type: "Polygon", coordinates: [s.ring] }),
+                cat,
+              });
     } catch (err) {
       console.error(err);
       highlightedCat = null;
@@ -3475,9 +3484,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }
 
   // ---- The breakdown for whatever is chosen -------------------------------
-  const reportCall = (p) =>
-    p.kind === "blk" ? authRpc("area_report_blk", { gov: p.gov, nbh: p.nbh, blk: p.blk })
-    : p.kind === "nbh" ? authRpc("area_report_nbh", { gov: p.gov, nbh: p.nbh })
+  const reportCall = async (p) =>
+    p.kind === "blk"
+      ? mergeReports(await overCodes(p.gov, p.nbh, (n) =>
+          authRpc("area_report_blk", { gov: p.gov, nbh: n, blk: p.blk })))
+    : p.kind === "nbh"
+      ? mergeReports(await overCodes(p.gov, p.nbh, (n) =>
+          authRpc("area_report_nbh", { gov: p.gov, nbh: n })))
     : authRpc("area_report_gov", { gov: p.gov });
 
   // One retry, for the governorate case specifically. Grouping 90,000 parcels
@@ -3539,6 +3552,80 @@ svg.leaflet-zoom-animated{will-change:transform;}
   const placeLabels = L.layerGroup().addTo(map);
   let nbhoodPlaces = [];
   let govPlaces = [];
+
+  // ---- One place, however many codes it was filed under -------------------
+  // Eighteen places are split across two to four neighbourhood codes, with one
+  // code holding nearly all the parcels and the rest holding a handful in the
+  // same ground: سعد العبد الله is 437 with 8,132 parcels plus 952, 500 and
+  // 954 with nine, four and one. A few splits are substantial -- رجم خشمان و
+  // مصلان is 1,669 under 704 and 1,169 under 760, ضاحية ابو فطيره 3,480 under
+  // 326 and 376 under 304.
+  //
+  // Unmerged that shows as two identical entries in the list, one of them
+  // nearly empty, and whichever you pick quietly answers for part of the
+  // place: the parcel you are looking for is in the other code, the block
+  // list is half of one, and the breakdown undercounts.
+  //
+  // So the page works in places, not codes. A place carries every code it was
+  // filed under, and anything asked of a place is asked of each of them and
+  // the answers joined. The codes themselves are untouched -- they are the
+  // municipality's, and a block still belongs to exactly one.
+  let placeGroups = [];
+  const groupByCode = new Map(); // "gov|nbhood" -> the place it belongs to
+
+  // Names are matched the way the search matches them: diacritics, alef forms
+  // and spacing in these names are not written consistently.
+  const placeKey = (p) => `${p.gov_no}|${tight(normAr(p.name_ar || p.name_en || ""))}`;
+
+  function buildPlaceGroups() {
+    const by = new Map();
+    for (const p of nbhoodPlaces) {
+      // "-1" is not a name. Two unnamed islands twelve kilometres apart would
+      // otherwise merge into one place spanning the sea between them.
+      const name = tight(normAr(p.name_ar || p.name_en || ""));
+      const k = !name || name === "-1" ? `solo|${p.gov_no}|${p.nbhood_no}` : placeKey(p);
+      by.set(k, [...(by.get(k) ?? []), p]);
+    }
+    placeGroups = [];
+    groupByCode.clear();
+    for (const members of by.values()) {
+      // Biggest first: its code is the one the place is known by, and its
+      // name is the one with the most parcels behind it.
+      members.sort((a, b) => Number(b.plot_count) - Number(a.plot_count));
+      const g = {
+        ...members[0],
+        plot_count: members.reduce((s, m) => s + Number(m.plot_count || 0), 0),
+        min_lat: Math.min(...members.map((m) => m.min_lat)),
+        max_lat: Math.max(...members.map((m) => m.max_lat)),
+        min_lon: Math.min(...members.map((m) => m.min_lon)),
+        max_lon: Math.max(...members.map((m) => m.max_lon)),
+        codes: members.map((m) => m.nbhood_no),
+      };
+      placeGroups.push(g);
+      for (const m of members) groupByCode.set(`${m.gov_no}|${m.nbhood_no}`, g);
+    }
+    // Same order the server sent: busiest first, which is what decides who
+    // survives a crowded map.
+    placeGroups.sort((a, b) => Number(b.plot_count) - Number(a.plot_count));
+  }
+
+  // Every code a place was filed under, given any one of them.
+  const codesFor = (gov, nbh) =>
+    groupByCode.get(`${gov}|${nbh}`)?.codes ?? [nbh];
+
+  // Asks all of them and joins the answers, dropping the ones that failed
+  // rather than losing the whole result to one bad code.
+  async function overCodes(gov, nbh, fn) {
+    const out = await Promise.all(
+      codesFor(gov, nbh).map((code) => Promise.resolve(fn(code)).catch((err) => {
+        console.error(`code ${gov}/${code} failed:`, err);
+        return null;
+      }))
+    );
+    const ok = out.filter((x) => x !== null);
+    if (!ok.length && out.length) throw new Error("all codes failed");
+    return ok;
+  }
   // Above this, governorate names are noise: their neighbourhoods are all
   // labelled individually and the governorate is the one thing a reader can
   // already tell from the shape of the coast.
@@ -3596,20 +3683,26 @@ svg.leaflet-zoom-animated{will-change:transform;}
       // some of their own, so this must not take the page down with it.
       console.error("place names failed:", err);
       nbhoodPlaces = [];
+      buildPlaceGroups();
       return;
     }
+    buildPlaceGroups();
     buildGovPlaces();
     updatePlaceLabels();
     fillAllNbhoods();
   }
 
   function placeName(p) {
-    return (lang === "ar" ? p.name_ar || p.name_en : p.name_en || p.name_ar) || "";
+    const pick = lang === "ar" ? p.name_ar || p.name_en : p.name_en || p.name_ar;
+    // Two places carry "-1" as their name -- the causeway islands, which the
+    // layer never named. Listed raw they were two entries both called "-1".
+    // The code is not a name either, but it is true and it tells them apart.
+    return pick && pick !== "-1" ? pick : `${t("neighborhood")} ${p.nbhood_no}`;
   }
 
   function updatePlaceLabels() {
     placeLabels.clearLayers();
-    if (!nbhoodPlaces.length) return;
+    if (!placeGroups.length) return;
     const z = map.getZoom();
     const bounds = map.getBounds().pad(0.08);
     const budget = placeLabelBudget(z);
@@ -3655,11 +3748,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // One name per pass. A few places are split across governorates and come
     // back as two rows with the same name -- حدائق السور - الحزام الاخضر is
     // one strip of green belt stored twice -- and drawing the same words twice
-    // on one screen reads as a bug. nbhoodPlaces is ordered by plot_count, so
-    // the copy that survives is the larger half.
+    // on one screen reads as a bug. Places merged across their codes already
+    // account for most of that; this still catches a name repeated across two
+    // governorates, and places are ordered by plot count, so the copy that
+    // survives is the larger one.
     const seen = new Set();
     let drawn = 0;
-    for (const p of nbhoodPlaces) {
+    for (const p of placeGroups) {
       if (drawn >= budget) break;
       if (!bounds.contains([p.lat, p.lon])) continue;
       const name = placeName(p);
@@ -5074,7 +5169,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const out = [];
     for (const a of PLACE_ALIASES) {
       if (!a.terms.some((x) => normAr(x).includes(s) || s.includes(normAr(x)))) continue;
-      const p = nbhoodPlaces.find((x) => x.gov_no === a.gov && x.nbhood_no === a.nbh);
+      const p = groupByCode.get(`${a.gov}|${a.nbh}`);
       if (p) out.push(p);
     }
     return out;
@@ -5084,12 +5179,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   function matchPlaces(term) {
     const s = normAr(term);
-    if (s.length < 2 || !nbhoodPlaces.length) return [];
+    if (s.length < 2 || !placeGroups.length) return [];
     const scored = [];
     // Aliases rank with exact matches: someone typing بنيدر wants that coast,
     // not whatever else happens to contain the letters.
     for (const p of aliasHits(s)) scored.push({ rank: 0, p });
-    for (const p of nbhoodPlaces) {
+    for (const p of placeGroups) {
       const ar = normAr(p.name_ar);
       const en = normAr(p.name_en);
       // Exact first, then prefix, then anywhere -- typing "جهراء" should put
@@ -5400,7 +5495,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
   let nbhRows = [];
 
   function nbhLabel(r) {
-    return (lang === "ar" ? r.name_ar || r.name_en : r.name_en || r.name_ar) || "—";
+    // Same naming as the map labels, so a place reads the same in the list as
+    // it does on the map -- including the unnamed ones, which this used to
+    // show as two entries both called "-1".
+    return (r.nbhood_no != null ? placeName(r) : null)
+      || (lang === "ar" ? r.name_ar || r.name_en : r.name_en || r.name_ar)
+      || "—";
   }
 
   function refreshSelectPlaceholders() {
@@ -5625,9 +5725,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // ordering exists so the busiest places survive a crowded map, which is no
   // help at all in a dropdown someone is reading down.
   function fillAllNbhoods() {
-    if (!nbhoodPlaces.length || selGov.value) return;
+    if (!placeGroups.length || selGov.value) return;
     const collator = new Intl.Collator(lang === "ar" ? "ar" : "en");
-    nbhRows = [...nbhoodPlaces].sort((a, b) => collator.compare(placeName(a), placeName(b)));
+    nbhRows = [...placeGroups].sort((a, b) => collator.compare(placeName(a), placeName(b)));
     fillSelect(selNbh, t("selNbh"), nbhRows, (r) => r.nbhood_no, nbhLabel);
     syncShowArea();
   }
@@ -5647,9 +5747,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
     resetDrawing();
     reportScope = blk ? { kind: "blk", gov, nbh, blk } : { kind: "nbh", gov, nbh };
     try {
-      const rows = blk
-        ? await authRpc("area_report_blk", { gov, nbh, blk })
-        : await authRpc("area_report_nbh", { gov, nbh });
+      // Through reportCall, which asks every code the place was filed under.
+      const rows = await reportCall(reportScope);
       showReport(rows);
       statusEl.textContent = "";
     } catch (err) {
@@ -5672,10 +5771,22 @@ svg.leaflet-zoom-animated{will-change:transform;}
     hideResults();
     clearSelection();
 
-    const rows = await api(
-      `rpc/area_extent?nbh=${q(nbh)}` + (blk ? `&blk=${q(blk)}` : "")
-    );
-    const e = rows?.[0];
+    const extents = (await overCodes(Number(selGov.value), Number(nbh), (code) =>
+      api(`rpc/area_extent?nbh=${q(code)}` + (blk ? `&blk=${q(blk)}` : ""))
+    )).flat().filter((x) => x && x.min_lon != null);
+    // The box around every code the place was filed under, so Show frames the
+    // whole of it and not whichever part the busiest code happens to hold.
+    const e = extents.length
+      ? {
+          min_lat: Math.min(...extents.map((x) => x.min_lat)),
+          max_lat: Math.max(...extents.map((x) => x.max_lat)),
+          min_lon: Math.min(...extents.map((x) => x.min_lon)),
+          max_lon: Math.max(...extents.map((x) => x.max_lon)),
+          // Summed, not taken from the first code -- the line underneath
+          // reports it, and reading it off one code printed "undefined".
+          plot_count: extents.reduce((s, x) => s + Number(x.plot_count || 0), 0),
+        }
+      : null;
     if (!e || e.min_lon == null) {
       statusEl.textContent = t("noMatch");
       errEl.textContent = t("noGeomHint");
@@ -5749,7 +5860,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // an empty list -- the list was usable before one was picked, so unpicking
     // one should not take it away.
     if (!selGov.value) return fillAllNbhoods();
-    const rows = await api(`rpc/list_nbhoods?gov=${q(selGov.value)}`);
+    // From the places already in memory rather than list_nbhoods. That reads
+    // the reference table, which lists codes separately -- so picking a
+    // governorate undid the merging and put the duplicate entries back -- and
+    // it also lists codes with no parcels at all, which pick to nothing.
+    const gov = Number(selGov.value);
+    const collator = new Intl.Collator(lang === "ar" ? "ar" : "en");
+    const rows = placeGroups
+      .filter((p) => p.gov_no === gov)
+      .sort((a, b) => collator.compare(placeName(a), placeName(b)));
     if (seq !== cascadeSeq) return;
     nbhRows = rows;
     fillSelect(selNbh, t("selNbh"), nbhRows, (r) => r.nbhood_no, nbhLabel);
@@ -5778,15 +5897,17 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // From `plots`, not address_index: the index describes the retired parcel
     // set, and in redeveloped areas its blocks no longer exist. Khiran offered
     // 14 blocks none of which any parcel is in.
-    const rows = await api(`rpc/list_blocks_v3?gov=${q(selGov.value)}&nbh=${q(selNbh.value)}`);
+    const lists = await overCodes(Number(selGov.value), Number(selNbh.value), (code) =>
+      api(`rpc/list_blocks_v3?gov=${q(selGov.value)}&nbh=${q(code)}`)
+    );
+    const rows = lists.flat();
     if (seq !== cascadeSeq) return;
     // Ordered here rather than in SQL. The server can only sort a block
     // number it can recognise as one, and in Mahboula none of them look like
     // a number -- "قطعة001 - قطاع  1" sorts as a string, which put block 1
     // next to block A1 and block 9 after block 4. Sorted on the number read
     // out of the string, the list runs 1, 2, 3, 4, 6, 7, 8, 9, A1, A2, A3.
-    const blocks = rows
-      .map((r) => r.block_no)
+    const blocks = [...new Set(rows.map((r) => r.block_no))]
       .filter((b) => b && !parseBlock(b).none)
       .sort((a, b) => {
         const pa = parseBlock(a);
@@ -5803,9 +5924,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
     closeReport(); // a report for the previous block no longer describes this one
     empty(selPar, "selPar");
     if (!selBlk.value) return;
-    const rows = await api(
-      `rpc/list_parcels_v3?gov=${q(selGov.value)}&nbh=${q(selNbh.value)}&blk=${q(selBlk.value)}`
-    );
+    // Over every code too: the block list above is the union across them, so
+    // a block that only exists in one of the smaller codes would otherwise
+    // offer an empty parcel list.
+    const rows = (await overCodes(Number(selGov.value), Number(selNbh.value), (code) =>
+      api(`rpc/list_parcels_v3?gov=${q(selGov.value)}&nbh=${q(code)}&blk=${q(selBlk.value)}`)
+    )).flat();
     if (seq !== cascadeSeq) return;
     // Label with house number or the feature's name where there is one.
     // The municipality's address index holds more addresses than the public
@@ -5874,9 +5998,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // The governorate is filled in behind a neighbourhood picked from the
     // whole-country list, so it is there by the time this runs.
     const blk = selBlk.value ? `&blk=${q(selBlk.value)}` : "";
-    const rows = await api(
-      `rpc/find_in_nbhood?gov=${q(selGov.value)}&nbh=${q(selNbh.value)}&term=${q(term)}${blk}`
-    );
+    const rows = (await overCodes(Number(selGov.value), Number(selNbh.value), (code) =>
+      api(`rpc/find_in_nbhood?gov=${q(selGov.value)}&nbh=${q(code)}&term=${q(term)}${blk}`)
+    )).flat();
 
     if (!rows.length) {
       statusEl.textContent = t("noMatch");

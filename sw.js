@@ -8,7 +8,9 @@
 //
 // Plot data is never cached: it is fetched from Supabase per viewport, and a
 // stale boundary or dimension is worse than a slow one in a measuring tool.
-const VERSION = "v1";
+// v2 drops every v1 cache on activate, which is how the API responses v1 had
+// been storing get off people's devices.
+const VERSION = "v2";
 const SHELL = `shell-${VERSION}`;
 const SHELL_URLS = ["/", "/index.html", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
@@ -30,7 +32,16 @@ self.addEventListener("fetch", (e) => {
 
   const url = new URL(req.url);
   // Never intercept data or map tiles -- always live.
-  if (url.origin !== self.location.origin) return;
+  //
+  // /api/ is same-origin in production -- the Worker holding the Supabase key
+  // serves the page and proxies the data from one hostname -- so the
+  // cross-origin test alone did not exclude it, and this was doing both of the
+  // things the comment above says it does not. Every viewport, lookup and
+  // report was being written into the shell cache, and on a failed request the
+  // fallback below handed back index.html: a 200 whose body is HTML, which the
+  // page then tried to parse as JSON. "Unexpected token '<'" was the data layer
+  // reporting an outage as a syntax error.
+  if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
 
   e.respondWith(
     fetch(req)
