@@ -313,11 +313,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
   #results {
     position: absolute;
     top: 10px;
-    inset-inline-start: 50px;
+    /* Left in both directions, beside the zoom buttons, which Leaflet also
+       keeps on the left in an RTL page. As inset-inline-start it flipped to
+       the right in Arabic and landed underneath the layer switcher, which
+       sits there and is drawn above it -- the list of matches was invisible
+       in the language most of this map is read in.
+
+       And above Leaflet's own controls (they are z-index 1000), because a
+       list you are being asked to choose from cannot be the thing behind. */
+    left: 50px;
     width: min(340px, calc(100% - 70px));
     max-height: 55%;
     overflow-y: auto;
-    z-index: 620;
+    z-index: 1100;
     background: var(--paper);
     border: 1px solid var(--line);
     border-radius: 10px;
@@ -393,7 +401,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
     gap: 6px;
     align-items: center;
     flex: 1 1 380px;
-    max-width: 560px;
+    /* Enough for the address row's five controls and its Show button to sit on
+       one line on a normal desktop. At 560 the number box pushed the row to
+       three. Narrower windows wrap the whole search block onto its own line,
+       which is what the header's flex-wrap is for. */
+    max-width: 700px;
     flex-wrap: wrap;
   }
   #modeTabs { display: flex; }
@@ -414,7 +426,24 @@ svg.leaflet-zoom-animated{will-change:transform;}
     border-color: var(--accent);
     color: #fff;
   }
-  #addrForm { display: flex; gap: 5px; flex: 1; min-width: 0; }
+  /* Wraps: there are five controls in here now, and squeezing a fifth into one
+     line left each of them too narrow to read a neighbourhood's name in. */
+  #addrForm { display: flex; gap: 5px; flex: 1; min-width: 0; flex-wrap: wrap; }
+  /* Narrower than the pickers beside it, because it holds a number and they
+     hold names -- and visibly a field you type in rather than a list you open:
+     no caret, and it keeps the text cursor. */
+  #addrForm #quickNo {
+    font: inherit;
+    font-size: 12px;
+    padding: 5px 6px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--ink);
+    flex: 0 1 88px;
+    min-width: 60px;
+  }
+  #addrForm #quickNo:disabled { color: #9aa79f; background: #f2f0ea; }
   /* An explicit display rule beats the UA stylesheet's [hidden] { display:none },
      so the hidden state has to be restated here or both forms show at once. */
   #addrForm[hidden], #searchForm[hidden] { display: none; }
@@ -433,8 +462,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
   /* Typing filters the list. The <select> stays in the DOM holding the value,
      so everything reading .value or listening for `change` is untouched --
      only its presentation is replaced. */
-  #addrForm .combo { position: relative; flex: 1; min-width: 0; display: flex; }
+  /* A floor rather than min-width:0: with the number box added, letting these
+     shrink without limit left each picker about 65px, narrow enough that
+     "اختر المنطقة" read as "اختر ال". Below the floor the row wraps instead. */
+  #addrForm .combo { position: relative; flex: 1 1 80px; min-width: 80px; display: flex; }
   #addrForm .combo select { display: none; }
+  /* The parcel list is empty -- and so disabled -- until a block is chosen,
+     and the number box beside it now reaches the same parcels without one. It
+     takes its space back only when it has something in it, which keeps the row
+     on one line in the state it spends most of its time in. */
+  #addrForm .combo[data-for="selPar"].disabled { display: none; }
   #addrForm .combo input {
     font: inherit;
     font-size: 12px;
@@ -1199,6 +1236,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       <div id="addrForm" hidden>
         <select id="selGov"></select>
         <select id="selNbh" disabled></select>
+        <!-- The parcel or house number, typed straight in. The two pickers
+             after it still work, but nothing makes you walk through them to
+             reach a number you already know. -->
+        <input id="quickNo" type="search" inputmode="numeric"
+               data-i18n-ph="quickNoPh" data-i18n-title="quickNoTitle" disabled />
         <select id="selBlk" disabled></select>
         <select id="selPar" disabled></select>
         <button id="showAreaBtn" type="button" data-i18n="showArea" disabled>Show</button>
@@ -1375,6 +1417,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       selNbh: "اختر المنطقة",
       selBlk: "اختر القطعة",
       selPar: "اختر القسيمة",
+      quickNoPh: "قسيمة / منزل",
+      quickNoTitle: "اكتب رقم القسيمة أو المنزل ثم اضغط Enter — دون الحاجة لاختيار القطعة",
+      quickPickHint: (n) => `${n} احتمالاً في هذه المنطقة — اختر واحداً`,
+      quickNone: (q) => `لا توجد قسيمة أو منزل بالرقم "${q}" في هذه المنطقة.`,
+      quickNeedNbh: "اختر المنطقة أولاً",
       noMatches: "لا توجد نتائج",
       // No longer only the start point -- both ends latch onto boundaries and
       // road edges now.
@@ -1507,6 +1554,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       selNbh: "Select neighbourhood",
       selBlk: "Select block",
       selPar: "Select parcel",
+      quickNoPh: "Parcel / house",
+      quickNoTitle: "Type a parcel or house number and press Enter — no need to pick a block",
+      quickPickHint: (n) => `${n} candidates in this area — pick one`,
+      quickNone: (q) => `No parcel or house numbered "${q}" in this area.`,
+      quickNeedNbh: "Choose a neighbourhood first",
       noMatches: "No matches",
       snapStart: "Snap to lines",
       perp: "⊥ to edge",
@@ -1578,6 +1630,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
     }
     for (const el of document.querySelectorAll("[data-i18n-ph]")) {
       el.placeholder = t(el.dataset.i18nPh);
+    }
+    for (const el of document.querySelectorAll("[data-i18n-title]")) {
+      el.title = t(el.dataset.i18nTitle);
     }
     // Re-render anything built from JS strings.
     refreshSelectPlaceholders();
@@ -2608,6 +2663,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     closeReport();
     drawLayer.clearLayers();
     hideResults();
+    clearCandidates();
     // The search is part of what is on screen, so Clear clears it too. Leaving
     // a governorate, a neighbourhood and a block still filled in after
     // everything else had gone meant the next search started from the last
@@ -2615,6 +2671,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // the four lists by hand.
     const searchBox = document.getElementById("searchInput");
     if (searchBox) searchBox.value = "";
+    if (quickNo) quickNo.value = "";
     if (selGov) {
       selGov.value = "";
       selGov._combo?.sync();
@@ -2975,6 +3032,167 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }
   map.on("zoomend", updateParcelLabels);
 
+  // ---- Reading a block number --------------------------------------------
+  // The municipality's BlockNo is a free-text field, and in a good part of the
+  // country it does not hold a block number at all. 96,004 parcels -- 31% --
+  // carry something else, across 746 distinct spellings:
+  //
+  //   قطعة001 - قطاع  1        Mahboula, Mangaf, Fintas, Abu Halifa, Hawally
+  //   قطعة 3 (N6) الضاحية السادسة   Mutlaa, block 3 of suburb 6
+  //   Area4(N4)3               the same thing, in the other notation
+  //   قطاع 1 ق8 ( ق ح سابقا )   Mahboula again, block 8, formerly "ق ح"
+  //   010(Old1&2)              Khaitan, block 10, was 1 and 2
+  //   قطعة 5 -قطاع 2 (ب سابقاً)
+  //   -1                       no block; a sentinel, not a number
+  //
+  // Printed raw against the word "القطعة" that becomes "القطعة قطعة001 - قطاع
+  // 1" on the map and in the dropdown -- the word twice, the sector in the
+  // middle of it, and nothing sortable. Mahboula is the worst of it: thirteen
+  // blocks, eleven of them spelled like that.
+  //
+  // So the string is read rather than printed. The number comes out for the
+  // map label and headings, and the qualifiers it was buried in (sector,
+  // suburb, former name) are kept and shown where there is room for them --
+  // the dropdown and the detail panel. Nothing is rewritten in the database:
+  // block_no stays the key that groups parcels and that the reports are asked
+  // for by, and this only decides how it reads.
+  const BLOCK_ORDINALS = [
+    // Longest first: "الثانية عشر" must not match as "الثانية".
+    ["الحادية عشر", 11], ["الثانية عشر", 12], ["الثالثة عشر", 13],
+    ["الأولي", 1], ["الأولى", 1], ["الاولى", 1], ["الاولي", 1],
+    ["الثانية", 2], ["الثالثة", 3], ["الرابعة", 4], ["الخامسة", 5],
+    ["السادسة", 6], ["السابعة", 7], ["الثامنة", 8], ["التاسعة", 9],
+    ["العاشرة", 10],
+  ];
+
+  // Leading zeros off each token that starts with digits, so "004+005" reads
+  // "4+5" and "053A" reads "53A", while "Garden016" -- where the digits are
+  // part of a name -- is left alone.
+  const unpadBlock = (s) =>
+    s.split("+").map((part) => part.trim().replace(/^0+(?=\d)/, "")).join("+");
+
+  const blockCache = new Map();
+
+  function parseBlock(raw) {
+    const key = String(raw ?? "");
+    const cached = blockCache.get(key);
+    if (cached) return cached;
+
+    let s = key.replace(/[\t ]+/g, " ").replace(/\s+/g, " ").trim();
+    // "-1" is the layer's way of saying the parcel is in no block -- chalet
+    // strips, farmland, the islands. Labelling 3,545 parcels "القطعة -1" says
+    // less than labelling them nothing.
+    let out;
+    if (!s || s === "-1") out = { none: true, num: "", short: "", long: "", sort: null };
+    else if (/^\d+$/.test(s)) {
+      const n = String(Number(s));
+      out = { num: n, short: n, long: n, sort: Number(s) };
+    } else {
+      // A column header that leaked into a value, on 66 parcels in Fintas.
+      s = s.replace(/^Block\s*No\b[\s:]*/i, "");
+      // "المرحلةA3" -- the phase and its letter run together.
+      s = s.replace(/([؀-ۿ])([A-Za-z])/g, "$1 $2");
+
+      let sector = null;
+      let district = null;
+      const notes = [];
+
+      s = s.replace(
+        /[(\-,]?\s*(?:قطاع|SEC(?:TOR)?)\s*[-.: ]*([0-9]{1,3}|[A-Za-z])\s*\)?/i,
+        (_, g) => { sector = unpadBlock(g); return " "; }
+      );
+
+      // The suburb a block belongs to, in each of the three notations the
+      // layer uses for it. Kept in the spelling it came in rather than
+      // translated into one of the others: "N4" and "Area 4" are different
+      // cities' own numbering, and conflating them would invent a fact.
+      s = s.replace(/Area\s*-?\s*\d+\s*\(\s*N\s*(\d+)\s*\)/i,
+        (_, g) => { district = `N${Number(g)}`; return " "; });
+      s = s.replace(/\(\s*N\s*(\d+)\s*\)/i,
+        (_, g) => { district = `N${Number(g)}`; return " "; });
+      s = s.replace(/\(?\s*Area\s*-?\s*(\d+)\s*\)?/i,
+        (_, g) => { district = district ?? `Area ${Number(g)}`; return " "; });
+      s = s.replace(/الضا[حخ]ية\s*([^\d()]*)/, (m, words) => {
+        const w = words.trim();
+        const hit = BLOCK_ORDINALS.find(([ar]) => w.startsWith(ar));
+        if (!hit) return m;
+        district = district ?? `ضاحية ${hit[1]}`;
+        return " ";
+      });
+
+      // A letter or two bracketed straight onto the digits is part of the
+      // designation, not a remark about it: "008(E)" is block 8E, and Mahboula
+      // has a separate block 8. Only when it is tight against the number and
+      // short -- "005 (Old 3)" and "010(Old1&2)" are remarks.
+      s = s.replace(/(\d)\(([A-Za-z؀-ۿ]{1,2})\)/, "$1$2");
+
+      // Whatever is still in brackets is a former name or a qualifier.
+      s = s.replace(/\(([^)]*)\)/g, (_, g) => {
+        const t = g.trim();
+        if (t) notes.push(t.replace(/\s+/g, " "));
+        return " ";
+      });
+
+      s = s.replace(/\s+/g, " ").replace(/^[-,\s]+|[-,\s]+$/g, "");
+      // "قطعة-1" is the same no-block sentinel wearing the word.
+      const sentinel = /^(?:قطعه|قطعة|ق)\s*-\s*1$/.test(s);
+      let num = sentinel
+        ? ""
+        : s.replace(/^(?:قطعه|قطعة|قطع|Block|Blk|BL|ق)\s*[-.: ]*/i, "")
+           .replace(/^[-,\s]+|[-,\s]+$/g, "");
+      // A hyphen left with a gap beside it where a qualifier used to be:
+      // "ind area3-Block-C" minus its suburb is "ind -Block-C".
+      num = unpadBlock(num).replace(/\s*-\s*/g, "-");
+      // Nothing left but the qualifiers: then the qualifier IS the identity --
+      // "قطاع 5" on its own is how Mangaf and Fahaheel name whole sectors.
+      let fromQual = false;
+      if (!num) {
+        fromQual = true;
+        num = sector ? `قطاع ${sector}` : district || notes.shift() || key.trim();
+      }
+
+      const quals = [];
+      if (district && !fromQual) quals.push(district);
+      if (sector && !fromQual) quals.push(`قطاع ${sector}`);
+      quals.push(...notes);
+
+      // The suburb joins the short label only when it is compact. Without it,
+      // Mutlaa shows four blocks numbered 1 to 4 in each of twelve suburbs and
+      // no way to tell which "3" is on screen; with a spelled-out Arabic
+      // suburb in there, the label is wider than the block it sits on.
+      const tight = district && !fromQual && district.length <= 4;
+      // Anchored: only a block that opens with its number sorts as a number.
+      // Matching a digit anywhere put A1, A2, A3 among blocks 1, 2 and 3 --
+      // the same interleaving the server-side sort was already avoiding, one
+      // level further in.
+      const m = num.match(/^\d+/);
+      out = {
+        num,
+        short: tight ? `${num} (${district})` : num,
+        long: quals.length ? `${num} · ${quals.join(" · ")}` : num,
+        sort: m ? Number(m[0]) : null,
+      };
+    }
+    blockCache.set(key, out);
+    return out;
+  }
+
+  // The short form, for a label on the map or a heading. The word "القطعة"
+  // goes in front of a number but not in front of a name: "القطعة Services
+  // Zone" is not a block number, and neither is "القطعة المرحلة A3".
+  function blockShort(raw) {
+    const b = parseBlock(raw);
+    if (b.none) return "";
+    return /^[0-9]/.test(b.short) ? `${t("block")} ${b.short}` : b.short;
+  }
+
+  // The full form, for the dropdown and the detail panel -- everywhere there
+  // is room to say which sector or suburb, and which block it used to be.
+  function blockLong(raw) {
+    const b = parseBlock(raw);
+    return b.none ? "" : b.long;
+  }
+
   // ---- Block numbers ------------------------------------------------------
   // Derived from the plots already on screen rather than fetched: plots_public
   // carries block_no on every row, so a block label costs no request and
@@ -2985,6 +3203,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // empty basemap means little.
   const blockLabels = L.layerGroup().addTo(map);
   const pickHighlight = L.layerGroup().addTo(map);
+  // Every parcel a typed number could mean, outlined at once so the choice is
+  // made by looking at the map rather than by reading a list of block numbers
+  // -- which is the whole difficulty when the block numbers are strings like
+  // "قطعة001 - قطاع  1". Its own layer, above the plots and below the labels,
+  // and it holds the shapes because the answer arrived with them: unlike a
+  // pick, these are not re-derivable from what happens to be on screen.
+  const candLayer = L.layerGroup().addTo(map);
   const BLOCK_MIN_ZOOM = 15;
   let blockGroups = new Map();
   // Everything currently chosen, of any kind. See "Choosing areas" below.
@@ -3026,7 +3251,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const groups = new Map();
     for (const f of labelledFeatures) {
       const blk = f.properties?.block_no;
-      if (!blk) continue;
+      if (!blk || parseBlock(blk).none) continue;
       const ring = f.geometry?.coordinates?.[0];
       if (!ring?.length) continue;
       const nbh = f.properties.neighborhood_ar ?? f.properties.neighborhood_en ?? "";
@@ -3068,7 +3293,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
     for (const g of order) {
       if (!bounds.contains([g.lat, g.lon])) continue;
       const pt = map.latLngToContainerPoint([g.lat, g.lon]);
-      const halfW = 26 + String(g.blk).length * 5;
+      const text = blockShort(g.blk);
+      // Half the label's width, estimated from its length -- the marker is not
+      // in the document yet, so it cannot be measured. The word is part of the
+      // text now, so this counts the whole thing rather than the number alone.
+      const halfW = 6 + text.length * 3.5;
       const box = [pt.x - halfW, pt.y - 13, pt.x + halfW, pt.y + 13];
       if (placed.some((b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;
       placed.push(box);
@@ -3077,7 +3306,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
         keyboard: false,
         icon: L.divIcon({
           className: `block-label${picks.has(g.key) ? " on" : ""}`,
-          html: `<span>${esc(t("block"))} ${esc(g.blk)}</span>`,
+          html: `<span>${esc(text)}</span>`,
           iconSize: null,
         }),
       });
@@ -3105,7 +3334,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   const MAX_PICKS = 12;
   function pickLabel(p) {
     return p.kind === "blk"
-      ? [`${t("block")} ${p.blk}`, p.nbhName].filter(Boolean).join(" ")
+      ? [blockShort(p.blk), p.nbhName].filter(Boolean).join(" ")
       : p.name;
   }
 
@@ -3824,7 +4053,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const row = (label, value) => `<div><dt>${label}</dt><dd>${value}</dd></div>`;
     panelEl.innerHTML =
       row(t("parcel"), props.parcel_no ?? "&mdash;") +
-      row(t("block"), props.block_no ?? "&mdash;") +
+      // The full reading, sector and former name included: the panel is where
+      // the detail belongs, and the map label has none of it.
+      row(t("block"), blockLong(props.block_no) || "&mdash;") +
       row(t("street"), street ?? "&mdash;") +
       row(t("house"), props.house_no ?? "&mdash;") +
       row(t("neighborhood"), nbh ?? "&mdash;") +
@@ -4263,7 +4494,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // field reads as a typesetting fault rather than a missing value.
     const idParts = [
       props.parcel_no ? `${t("parcel")} ${props.parcel_no}` : null,
-      props.block_no ? `${t("block")} ${props.block_no}` : null,
+      blockShort(props.block_no) || null,
     ].filter(Boolean);
     const heading = idParts.length ? idParts.join(" &mdash; ") : (nbh ?? t("parcel"));
     const printedAt = new Date().toLocaleString(lang === "ar" ? "ar-KW" : "en-GB");
@@ -4940,6 +5171,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
     if (!term) return;
     statusEl.textContent = t("searching");
     errEl.classList.remove("visible");
+    // A new search answers a different question from the last one's shortlist.
+    clearCandidates();
 
     const blockParcel = term.match(/^(\S+)\s*[/\-]\s*(\S+)$/);
     let rows = [];
@@ -5045,7 +5278,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
           const line1 =
             [
               h.parcel_no ? `${t("parcel")} ${h.parcel_no}` : null,
-              h.block_no ? `${t("block")} ${h.block_no}` : null,
+              blockShort(h.block_no) || null,
             ].filter(Boolean).join(" · ") || street || "—";
           const line2 = [
             [street, h.house_no ? `${t("house")} ${h.house_no}` : null].filter(Boolean).join(" "),
@@ -5069,6 +5302,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
         clearTimeout(suggestTimer);
         suggestSeq++;
         hideResults();
+        // The other candidates have served their purpose once one is chosen;
+        // leaving them outlined makes the chosen one the hardest to see.
+        clearCandidates();
         if (h.kind === "area") return gotoArea(h);
         map.setView([h.lat, h.lon], 18, { animate: false });
         await new Promise((r) => setTimeout(r, 120));
@@ -5159,6 +5395,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   const selNbh = document.getElementById("selNbh");
   const selBlk = document.getElementById("selBlk");
   const selPar = document.getElementById("selPar");
+  const quickNo = document.getElementById("quickNo");
   let govRows = [];
   let nbhRows = [];
 
@@ -5209,6 +5446,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
   function makeCombo(sel) {
     const wrap = document.createElement("div");
     wrap.className = "combo";
+    // So the stylesheet can speak about one of them in particular.
+    wrap.dataset.for = sel.id;
     sel.parentNode.insertBefore(wrap, sel);
     wrap.appendChild(sel);
 
@@ -5372,6 +5611,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // narrow the map view but are not needed for a district breakdown.
     nbhReportBtn.disabled = !selNbh.value;
     nbhReportBtn.hidden = !session;
+    // Same rule for the number box: a neighbourhood is all it needs. A block
+    // narrows it if one is chosen, and is never required.
+    quickNo.disabled = !selNbh.value;
   };
 
   // Every neighbourhood in the country at once, so the list is usable before a
@@ -5498,6 +5740,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   selGov.addEventListener("change", async () => {
     const seq = ++cascadeSeq;
     closeReport(); // it described the previous area
+    clearCandidates(); // and the shortlist was for the previous neighbourhood
     empty(selNbh, "selNbh");
     empty(selBlk, "selBlk");
     empty(selPar, "selPar");
@@ -5516,6 +5759,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   selNbh.addEventListener("change", async () => {
     const seq = ++cascadeSeq;
     closeReport();
+    clearCandidates();
     empty(selBlk, "selBlk");
     empty(selPar, "selPar");
     syncShowArea();
@@ -5536,7 +5780,22 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // 14 blocks none of which any parcel is in.
     const rows = await api(`rpc/list_blocks_v3?gov=${q(selGov.value)}&nbh=${q(selNbh.value)}`);
     if (seq !== cascadeSeq) return;
-    fillSelect(selBlk, t("selBlk"), rows.map((r) => r.block_no), (x) => x, (x) => x);
+    // Ordered here rather than in SQL. The server can only sort a block
+    // number it can recognise as one, and in Mahboula none of them look like
+    // a number -- "قطعة001 - قطاع  1" sorts as a string, which put block 1
+    // next to block A1 and block 9 after block 4. Sorted on the number read
+    // out of the string, the list runs 1, 2, 3, 4, 6, 7, 8, 9, A1, A2, A3.
+    const blocks = rows
+      .map((r) => r.block_no)
+      .filter((b) => b && !parseBlock(b).none)
+      .sort((a, b) => {
+        const pa = parseBlock(a);
+        const pb = parseBlock(b);
+        if (pa.sort != null && pb.sort != null && pa.sort !== pb.sort) return pa.sort - pb.sort;
+        if ((pa.sort == null) !== (pb.sort == null)) return pa.sort == null ? 1 : -1;
+        return pa.long.localeCompare(pb.long, lang === "ar" ? "ar" : "en");
+      });
+    fillSelect(selBlk, t("selBlk"), blocks, (x) => x, (x) => blockLong(x));
   });
 
   selBlk.addEventListener("change", async () => {
@@ -5582,6 +5841,99 @@ svg.leaflet-zoom-animated{will-change:transform;}
       errEl.textContent = t("noGeomHint");
       errEl.classList.add("visible");
     }
+  });
+
+  // ---- A number, inside the chosen neighbourhood -------------------------
+  // The cascade was neighbourhood -> block -> parcel, which asked for the one
+  // thing nobody carries around. A deed, a bill and a PACI card all name the
+  // parcel; none of them names the block, and in Mahboula, Mangaf, Fintas and
+  // Mutlaa the block is a sector string nobody would recognise even holding
+  // the paperwork. So the number goes straight in.
+  //
+  // Parcel numbers are unique inside a block, not inside a neighbourhood, so a
+  // number can match several parcels -- and a house number more often still.
+  // Every candidate is outlined on the map and listed, and the choice is made
+  // by looking at where they are.
+  function clearCandidates() {
+    candLayer.clearLayers();
+  }
+
+  async function quickFind() {
+    const term = quickNo.value.trim();
+    if (!term) return;
+    if (!selNbh.value) {
+      statusEl.textContent = "";
+      errEl.textContent = t("quickNeedNbh");
+      errEl.classList.add("visible");
+      return;
+    }
+    statusEl.textContent = t("searching");
+    errEl.classList.remove("visible");
+    clearCandidates();
+
+    // The governorate is filled in behind a neighbourhood picked from the
+    // whole-country list, so it is there by the time this runs.
+    const blk = selBlk.value ? `&blk=${q(selBlk.value)}` : "";
+    const rows = await api(
+      `rpc/find_in_nbhood?gov=${q(selGov.value)}&nbh=${q(selNbh.value)}&term=${q(term)}${blk}`
+    );
+
+    if (!rows.length) {
+      statusEl.textContent = t("noMatch");
+      errEl.textContent = t("quickNone", term);
+      errEl.classList.add("visible");
+      return;
+    }
+    if (rows.length === 1) {
+      hideResults();
+      await gotoPlot(rows[0]);
+      return;
+    }
+    await showCandidates(rows, term);
+  }
+
+  // Outlines them all, fits the map around them, and lists them to choose
+  // from. Fitting to the set rather than to the first one is the point: two
+  // parcels numbered 12 in the same neighbourhood are usually streets apart,
+  // and seeing both is what tells you which one you meant.
+  const CAND_STYLE = { color: "#1d6fd1", weight: 3, fillColor: "#3b9bff", fillOpacity: 0.3 };
+
+  async function showCandidates(rows, term) {
+    const shapes = [];
+    for (const r of rows) {
+      if (!r.geom) continue;
+      const lyr = L.geoJSON(r.geom, { style: CAND_STYLE, interactive: false });
+      lyr.addTo(candLayer);
+      shapes.push(lyr);
+    }
+    if (shapes.length) {
+      const bounds = shapes.reduce((b, l) => b.extend(l.getBounds()), shapes[0].getBounds());
+      skipNextMoveLoad = true;
+      // Same ceiling as landing on a single result, so adjacent candidates --
+      // which is what two parcels sharing a number usually are -- arrive at a
+      // zoom where you can actually tell them apart.
+      map.fitBounds(bounds, { padding: [60, 60], animate: false, maxZoom: 18 });
+      // The outlines arrived with the answer, but their surroundings did not:
+      // without this the candidates float over whichever area was loaded
+      // before. Same wait as a search result, for the new bounds to settle.
+      await new Promise((res) => setTimeout(res, 150));
+      await loadViewport();
+    }
+    showResults(rows.map(plotToResult), term);
+    statusEl.textContent = t("quickPickHint", rows.length);
+    // showResults clears the status line to make room for the list; this one
+    // says what the list is for, so it is set after rather than before.
+  }
+
+  quickNo.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    quickFind().catch((err) => {
+      statusEl.textContent = t("noMatch");
+      errEl.textContent = err.message;
+      errEl.classList.add("visible");
+      console.error(err);
+    });
   });
 
   const modePaci = document.getElementById("modePaci");

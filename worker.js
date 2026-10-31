@@ -30,6 +30,9 @@ const PUBLIC_RPC = new Set([
   "plot_by_gis", "plot_by_block_parcel", "plot_by_parcel_no",
   "search_address", "area_extent",
   "list_governorates", "list_nbhoods", "list_blocks_v3", "list_parcels_v3",
+  // A parcel or house number looked up inside one neighbourhood, without
+  // first choosing a block. Same reach as the cascade it sits in.
+  "find_in_nbhood",
 ]);
 
 // Signed-in only. Passed through with the caller's own token so the database
