@@ -505,6 +505,25 @@ svg.leaflet-zoom-animated{will-change:transform;}
   [dir="rtl"] #addrForm .combo .caret { right: auto; left: 7px; }
   #addrForm .combo.open .caret { color: var(--accent); }
   #addrForm .combo.disabled .caret { color: #b8c2bb; }
+  /* Why the block list is empty, on its own line under the row that is empty.
+     Not in the red bar at the top of the map and not in the status line in the
+     corner: both are a long way from the dropdown being explained, and one of
+     the two things this says is not an error at all -- plenty of cities simply
+     have no numbered blocks, and the useful answer there is "type the parcel
+     number instead", said next to the box to type it in. */
+  #blkNote {
+    flex: 1 1 100%;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 11.5px; color: #5b6b60; padding: 1px 2px;
+  }
+  #blkNote[hidden] { display: none; }
+  #blkNote.bad { color: #7a2b1f; }
+  #blkNote button {
+    font: inherit; font-size: 11.5px; padding: 1px 8px; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 5px; background: #fff;
+    color: var(--accent); white-space: nowrap;
+  }
+  #blkNote button:hover { background: #eef3ef; border-color: var(--accent); }
   /* The list lives on <body>, not inside the header, and is positioned in
      viewport coordinates. Nested in the header it was at the mercy of every
      ancestor's clipping and stacking; out here nothing can cut it off. Four
@@ -1261,6 +1280,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
                data-i18n-ph="quickNoPh" data-i18n-title="quickNoTitle" disabled />
         <button id="showAreaBtn" type="button" data-i18n="showArea" disabled>Show</button>
         <button id="nbhReportBtn" type="button" hidden data-i18n="analyseNbh" disabled>Analyse</button>
+        <!-- Why there are no blocks to pick, when there are none. Last in the
+             row, and full width, so it wraps onto its own line underneath
+             instead of pushing the buttons off the end of this one. -->
+        <div id="blkNote" hidden>
+          <span id="blkNoteMsg"></span>
+          <button id="blkRetry" type="button" hidden data-i18n="retry">Retry</button>
+        </div>
       </div>
     </div>
     <div style="display:flex; align-items:center; gap:10px;">
@@ -1450,6 +1476,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
       quickPickHint: (n) => `${n} احتمالاً في هذه المنطقة — اختر واحداً`,
       quickNone: (q) => `لا توجد قسيمة أو منزل بالرقم "${q}" في هذه المنطقة.`,
       quickNeedNbh: "اختر المنطقة أولاً",
+      blocksNone: "هذه المنطقة بلا أرقام قطع — اكتب رقم القسيمة في الخانة الأخيرة",
+      blocksFailed: "تعذّر جلب القطع. جرّب مرة أخرى، أو اكتب رقم القسيمة مباشرة.",
+      retry: "إعادة المحاولة",
       noMatches: "لا توجد نتائج",
       // No longer only the start point -- both ends latch onto boundaries and
       // road edges now.
@@ -1595,6 +1624,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
       quickPickHint: (n) => `${n} candidates in this area — pick one`,
       quickNone: (q) => `No parcel or house numbered "${q}" in this area.`,
       quickNeedNbh: "Choose a neighbourhood first",
+      blocksNone: "This area has no block numbers — type the parcel number in the last box",
+      blocksFailed: "Could not load the blocks. Try again, or type the parcel number directly.",
+      retry: "Retry",
       noMatches: "No matches",
       snapStart: "Snap to lines",
       perp: "⊥ to edge",
@@ -5716,6 +5748,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // The comboboxes show the option text, so they have to be repainted after
     // a language switch or they keep the previous language's labels.
     for (const s of [selGov, selNbh, selBlk, selPar]) s._combo?.sync();
+    // Same for the note under them, which holds a key rather than a sentence
+    // precisely so this works.
+    if (blkNoteKey) setBlkNote(blkNoteKey, blkNoteOpts);
   }
 
   function fillSelect(sel, placeholder, items, valueOf, labelOf) {
@@ -6134,6 +6169,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     empty(selBlk, "selBlk");
     empty(selPar, "selPar");
     syncShowArea();
+    setBlkNote(null);
     if (!selNbh.value) return;
     // The governorate follows the city every time, not only while it is empty.
     // Nothing refills the city list after a pick, so the whole country stays
@@ -6156,13 +6192,74 @@ svg.leaflet-zoom-animated{will-change:transform;}
       selGov.value = String(place.gov_no);
       selGov._combo?.sync();
     }
-    // From `plots`, not address_index: the index describes the retired parcel
-    // set, and in redeveloped areas its blocks no longer exist. Khiran offered
-    // 14 blocks none of which any parcel is in.
-    const lists = await overCodes(Number(selGov.value), Number(selNbh.value), (code) =>
-      api(`rpc/list_blocks_v3?gov=${q(selGov.value)}&nbh=${q(code)}`)
-    );
-    const rows = lists.flat();
+    // Which cities people actually ask about -- the one figure that says where
+    // data-quality work is worth doing. Recorded here, where the choosing
+    // happens, rather than inside loadBlocks: a retry of a failed lookup is
+    // not a second city being asked about.
+    track("place", { gov: Number(selGov.value), nbh: Number(selNbh.value) });
+    await loadBlocks();
+  });
+
+  // The note under the cascade. The key is kept rather than the rendered text,
+  // so that a language switch can repaint it.
+  let blkNoteKey = null;
+  let blkNoteOpts = {};
+  function setBlkNote(key, opts = {}) {
+    blkNoteKey = key;
+    blkNoteOpts = opts;
+    const box = document.getElementById("blkNote");
+    if (!box) return;
+    if (!key) {
+      // Emptied, not just hidden: a stale sentence left in a hidden element
+      // is a sentence waiting to be shown at the wrong moment.
+      box.hidden = true;
+      box.classList.remove("bad");
+      document.getElementById("blkNoteMsg").textContent = "";
+      document.getElementById("blkRetry").hidden = true;
+      return;
+    }
+    document.getElementById("blkNoteMsg").textContent = t(key);
+    document.getElementById("blkRetry").hidden = !opts.retry;
+    box.classList.toggle("bad", !!opts.bad);
+    box.hidden = false;
+  }
+
+  // Which blocks a city has -- and, when the answer is none, why.
+  //
+  // Its own function so the retry button can call it again, which is the point
+  // of the whole change. An empty block list used to be a dead end: a city
+  // whose blocks are genuinely unnumbered upstream and a lookup that answered
+  // 500 both arrived on screen as the same disabled dropdown with nothing
+  // said. The second is usually transient -- list_blocks_v3 failed twice for
+  // مدينة المطلاع and then answered five times running -- so the person who
+  // met it had no reason to try again and no way to know it was worth it.
+  async function loadBlocks() {
+    const seq = ++cascadeSeq;
+    const gov = Number(selGov.value);
+    const nbh = Number(selNbh.value);
+    setBlkNote(null);
+    empty(selBlk, "selBlk");
+    empty(selPar, "selPar");
+
+    let rows;
+    try {
+      // From `plots`, not address_index: the index describes the retired parcel
+      // set, and in redeveloped areas its blocks no longer exist. Khiran offered
+      // 14 blocks none of which any parcel is in.
+      const lists = await overCodes(gov, nbh, (code) =>
+        api(`rpc/list_blocks_v3?gov=${q(gov)}&nbh=${q(code)}`)
+      );
+      rows = lists.flat();
+    } catch (err) {
+      if (seq !== cascadeSeq) return;
+      console.error("list_blocks_v3 failed:", err);
+      setBlkNote("blocksFailed", { bad: true, retry: true });
+      // Recorded as a failure rather than as a city with no blocks, so the
+      // report can tell the two apart. Telling them apart is the reason this
+      // event exists.
+      track("blocks_empty", { gov, nbh, detail: "failed" });
+      return;
+    }
     if (seq !== cascadeSeq) return;
     // Ordered here rather than in SQL. The server can only sort a block
     // number it can recognise as one, and in Mahboula none of them look like
@@ -6180,14 +6277,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
       });
     fillSelect(selBlk, t("selBlk"), blocks, (x) => x, (x) => blockLong(x));
 
-    // Which cities people actually ask about -- the one figure that says where
-    // data-quality work is worth doing.
-    const where = { gov: Number(selGov.value), nbh: Number(selNbh.value) };
-    track("place", where);
-    // And a city that offered no blocks at all. Either its blocks are genuinely
-    // unnumbered upstream or the lookup failed, and both arrive on screen as
-    // the same empty dropdown. Counted here, they stop being invisible.
-    if (!blocks.length) track("blocks_empty", { ...where, detail: String(rows.length) });
+    // A city that answered, and has nothing numbered to offer. Not an error,
+    // and the useful thing to say is not "empty" but what to do instead: the
+    // number box at the end of the row finds a parcel without a block, which
+    // is the only way into a place like المهبوله.
+    if (!blocks.length) {
+      setBlkNote("blocksNone");
+      track("blocks_empty", { gov, nbh, detail: String(rows.length) });
+    }
+  }
+
+  // Same call, second attempt. The failure it recovers from is usually a
+  // transient 500, so one press is often the whole fix.
+  document.getElementById("blkRetry").addEventListener("click", () => {
+    if (selNbh.value) loadBlocks();
   });
 
   selBlk.addEventListener("change", async () => {
