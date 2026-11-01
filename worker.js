@@ -57,6 +57,13 @@ const AUTHED_RPC = new Set([
   // a caller felt like claiming.
   "usage_report", "usage_months", "set_month_cost", "prune_usage_events",
   "roll_up_month",
+  // Also called by the cron below. Listed here so opening /stats freezes the
+  // months too, because the cron is the one part of this whose failure is
+  // silent: everything on the page keeps working from the raw rows, and a
+  // trigger that never fired would only be discovered on the day those rows
+  // expired. The function returns immediately when both months were built in
+  // the last six hours, so a visit to the page usually costs one round trip.
+  "roll_up_recent",
 ]);
 
 // The largest area a single viewport request may cover, in square degrees.

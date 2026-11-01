@@ -5162,6 +5162,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
       refresh_token: body.refresh_token,
       email: body.user?.email ?? email,
     });
+    // Marks this browser as the owner's, so the report can leave its own
+    // visits out of the figures. The visit event at load time already carries
+    // this when the page opens with a session stored, but signing in happens
+    // after that, and a browser that signs in halfway through a visit would
+    // otherwise be counted as a member of the public for that visit.
+    track("session", { detail: "owner" });
   }
 
   // Access tokens expire after an hour, so a session restored from a previous

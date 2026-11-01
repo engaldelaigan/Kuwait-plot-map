@@ -352,11 +352,29 @@
 
   $("refresh").addEventListener("click", () => load());
 
+  // The monthly figures are frozen by a scheduled job in the Worker. Opening
+  // this page calls the same function, so the freeze does not depend on the
+  // schedule alone -- that is the one part of this whose failure is silent,
+  // because the page goes on recomputing every month from the raw rows and a
+  // trigger that never fired would only be discovered the day those rows
+  // expired. The function returns immediately when both months were built in
+  // the last six hours, so this usually costs one round trip, and only on the
+  // first load rather than on every refresh.
+  let rolled = false;
+  async function rollUpOnce() {
+    if (rolled) return;
+    rolled = true;
+    try {
+      await authRpc("roll_up_recent", {});
+    } catch { /* the report is still worth showing */ }
+  }
+
   async function load() {
     if (busy) return;
     busy = true;
     $("err").textContent = "";
     try {
+      await rollUpOnce();
       // The monthly series does not depend on the window, but it is small and
       // fetching both together keeps the page in one state rather than two.
       const [r, m] = await Promise.all([
@@ -564,7 +582,14 @@
       card("اليوم", fmt(live.today)) +
       `</div>`;
 
-    html += `<h2 class="sect">آخر ${days} يوم</h2>`;
+    // Stated rather than silent. The figures leave out every browser that has
+    // ever signed in, which is the owner's own; saying how much was left out
+    // is what makes that an exclusion rather than a discrepancy.
+    const ex = report.excluded || {};
+    const exNote = Number(ex.visitors) > 0
+      ? `<span class="hint">بدون زياراتك: ${fmt(ex.sessions)} زيارة، ${fmt(ex.events)} حدث</span>`
+      : "";
+    html += `<h2 class="sect">آخر ${days} يوم${exNote}</h2>`;
     html += `<div class="cards">` +
       card("زوار", fmt(w.visitors)) +
       card("زيارات", fmt(w.sessions), `${fmt(w.sessions_per_visitor)} لكل زائر`) +
