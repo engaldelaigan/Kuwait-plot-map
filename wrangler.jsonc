@@ -19,6 +19,15 @@
   "vars": {
     "SUPABASE_URL": "https://qfvhegueptllwojefxly.supabase.co"
   },
+  // Freezes the monthly usage figures so they outlive the raw event rows,
+  // which expire. Daily at 02:00 UTC rather than monthly: the figure that has
+  // to be right is a month that has already ended, and running it every day
+  // means a missed run is a day late instead of a year's history lost. The
+  // function it calls does nothing when the last two months were already
+  // built within six hours, so the other runs cost one round trip.
+  "triggers": {
+    "crons": ["0 2 * * *"]
+  },
   // Per-IP rate limiting at the edge. A viewport change costs two calls, so
   // even hard panning sits well under 120 a minute; a script walking the
   // country needs at least 312 requests just to clear the 1,000-row cap, and

@@ -1277,6 +1277,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
            tab, copy the address. Hidden until signed in, alongside the other
            owner-only controls. -->
       <a id="lawsBtn" class="hdr-link" href="/laws" hidden data-i18n="buildingLaws">Building rules</a>
+      <a id="statsBtn" class="hdr-link" href="/stats" hidden data-i18n="usageStats">Usage</a>
       <button id="authBtn" type="button" data-i18n="signIn">Sign in</button>
       <button id="infoBtn" type="button" title="معلومات · About">&#9432;</button>
       <button id="langBtn" type="button">EN</button>
@@ -1309,6 +1310,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
           <li data-i18n="aboutMeasure">…</li>
           <li data-i18n="aboutGaps">…</li>
           <li data-i18n="aboutOsm">…</li>
+          <!-- A site that counts its visitors should say that it does. Last in
+               the list because it is about the site rather than about the data,
+               and the data is what the panel was opened to read about. -->
+          <li data-i18n="aboutPrivacy">…</li>
         </ul>
         <p class="stamp" id="dataStamp"></p>
         <button type="button" id="infoClose" data-i18n="close">Close</button>
@@ -1373,6 +1378,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       openInMaps: "فتح في خرائط جوجل",
       landUse: "الاستعمال",
       buildingLaws: "أنظمة البناء",
+      usageStats: "الاستخدام",
       zoneSource: "حسب المخطط الهيكلي للبلدية",
       osmSays: "على الطبيعة",
       osmSource: "مصدر: OpenStreetMap (غير رسمي)",
@@ -1408,6 +1414,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
         "القسائم غير المصنّفة لدى البلدية قد يظهر لها وصف «على الطبيعة» مصدره " +
         "OpenStreetMap، وهو عمل تطوعي وليس تصنيفًا رسميًا. بيانات OpenStreetMap " +
         "متاحة برخصة ODbL بواسطة مساهمي OpenStreetMap©.",
+      aboutPrivacy:
+        "يحتفظ الموقع بعدّاد استخدام: معرّف عشوائي ينشئه متصفحك لنفسه، والمنطقة التي " +
+        "اخترتها، والأداة التي استخدمتها، وما بحثت عنه ولم تجده. لا يُحفظ عنوان IP ولا " +
+        "اسم ولا بريد إلكتروني، ولا يُربط شيء من ذلك بحساب. وتُسجّل الدولة والمدينة كما " +
+        "تحدّدهما شبكة Cloudflare، وهي وصف للشبكة لا للشخص. وإن كان متصفحك يرسل " +
+        "Do Not Track أو Global Privacy Control فلا يُحفظ المعرّف إطلاقًا.",
       updatedAt: (d) => `آخر تحديث للبيانات: ${d}`,
       signIn: "تسجيل الدخول",
       signOut: "خروج",
@@ -1507,6 +1519,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       openInMaps: "Open in Google Maps",
       landUse: "Land use",
       buildingLaws: "Building rules",
+      usageStats: "Usage",
       zoneSource: "From the municipality's master plan",
       osmSays: "On the ground",
       osmSource: "Source: OpenStreetMap (unofficial)",
@@ -1545,6 +1558,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
         "description from OpenStreetMap. That is volunteer-contributed, not an official " +
         "designation. OpenStreetMap data is © OpenStreetMap contributors, available under " +
         "the Open Database Licence (ODbL).",
+      aboutPrivacy:
+        "This site keeps a usage count: a random id your browser makes up for itself, which " +
+        "area you picked, which tool you used, and what you searched for and did not find. " +
+        "No IP address, name or email is stored, and none of it is tied to an account. The " +
+        "country and city recorded are the ones Cloudflare's network resolves, which describe " +
+        "the network rather than the person. If your browser sends Do Not Track or Global " +
+        "Privacy Control, the id is not kept at all.",
       updatedAt: (d) => `Data last updated: ${d}`,
       signIn: "Sign in",
       signOut: "Sign out",
@@ -1632,6 +1652,111 @@ svg.leaflet-zoom-animated{will-change:transform;}
     set(k, v) { try { localStorage.setItem(k, v); } catch { /* not fatal */ } },
   };
   let lang = storage.get("kwplots-lang") || "ar";
+
+  // ---- Usage counting ------------------------------------------------------
+  // How many people use this, which cities they ask about, and what they
+  // searched for and did not find. The last one is the reason this exists at
+  // all: a lookup that found nothing used to look exactly like a lookup nobody
+  // made, so the gaps in the data were invisible from here.
+  //
+  // What is recorded is a random id this browser made up for itself, which
+  // city was picked, which tool was used, and what a failed search was looking
+  // for. No account, no address, no IP -- the proxy adds the country and city
+  // Cloudflare resolved at the edge, which describes the network, not the
+  // person, and the page never sees an address to send. The About panel says
+  // all of this, because a site that counts its visitors should admit to it.
+  //
+  // Do Not Track and Global Privacy Control are honoured by not keeping the id
+  // at all: those visits still count as visits, and simply never join up into
+  // a returning visitor. A small loss of accuracy and the right default.
+  const dnt = (() => {
+    try {
+      return navigator.globalPrivacyControl === true ||
+             navigator.doNotTrack === "1" || window.doNotTrack === "1";
+    } catch { return false; }
+  })();
+
+  // Nothing from a development copy ever reaches the figures. server.js
+  // forwards /api to the deployed Worker, so without this every local reload
+  // would be counted as a visitor on the live numbers -- and those numbers are
+  // worth having only if they are a true count of other people.
+  const usageOff = location.protocol === "file:" ||
+    location.hostname === "localhost" || location.hostname === "127.0.0.1" ||
+    location.hostname === "::1" || location.hostname.endsWith(".localhost");
+
+  const randomId = () => {
+    try {
+      return crypto.randomUUID().replace(/-/g, "").slice(0, 24);
+    } catch {
+      return `r${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`.slice(0, 24);
+    }
+  };
+
+  // The visitor id persists, which is what makes "people who came back" a
+  // number rather than a guess. The session id does not: it lives in
+  // sessionStorage, so a new tab is a new visit.
+  const usageIds = (() => {
+    let v = dnt ? null : storage.get("kwplots-vid");
+    if (!v || !/^[A-Za-z0-9_-]{8,64}$/.test(v)) {
+      v = randomId();
+      if (!dnt) storage.set("kwplots-vid", v);
+    }
+    let s = null;
+    try { s = sessionStorage.getItem("kwplots-sid"); } catch { /* fine */ }
+    if (!s || !/^[A-Za-z0-9_-]{8,64}$/.test(s)) {
+      s = randomId();
+      try { sessionStorage.setItem("kwplots-sid", s); } catch { /* fine */ }
+    }
+    return { v, s };
+  })();
+
+  // On every API call, so that a call the Worker could not complete can be
+  // attributed to the session it happened in. Empty in development for the
+  // same reason track() is silent there.
+  const usageHeaders = () => (usageOff ? {} : {
+    "x-kwp-v": usageIds.v,
+    "x-kwp-s": usageIds.s,
+    "x-kwp-l": lang,
+  });
+
+  // Sent with sendBeacon where it exists, because it survives the page being
+  // closed -- which is exactly when the last event of a visit happens. The
+  // fetch fallback is keepalive for the same reason. Either way nothing is
+  // awaited and nothing can throw into the caller: counting a visit must never
+  // be able to break the visit.
+  function track(name, opts = {}) {
+    if (usageOff) return;
+    try {
+      const body = JSON.stringify({
+        v: usageIds.v,
+        s: usageIds.s,
+        n: name,
+        g: opts.gov ?? null,
+        b: opts.nbh ?? null,
+        d: opts.detail == null ? null : String(opts.detail).slice(0, 120),
+        l: lang,
+        r: usageReferrer,
+      });
+      const url = `${API_BASE}/ev`;
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(url, new Blob([body], { type: "application/json" }));
+      } else {
+        fetch(url, { method: "POST", body, keepalive: true, headers: { "content-type": "application/json" } })
+          .catch(() => {});
+      }
+    } catch { /* never the visitor's problem */ }
+  }
+
+  // Where this visit came from, host only -- enough to tell a search engine
+  // from a link someone shared, and not a record of the page they were on.
+  const usageReferrer = (() => {
+    try {
+      if (!document.referrer) return null;
+      const h = new URL(document.referrer).host;
+      return h && h !== location.host ? h.slice(0, 80) : null;
+    } catch { return null; }
+  })();
+
   const t = (key, ...args) => {
     const v = I18N[lang][key];
     return typeof v === "function" ? v(...args) : v;
@@ -2242,7 +2367,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     if (!setbackMode) { statusEl.textContent = ""; return; }
     // Entering the mode still does the whole plot at once -- that is the fast
     // path -- and clicking afterwards adds lines wherever you want them.
-    if (selectedProps) autoSetback();
+    if (selectedProps) { track("setback", { detail: selectedProps.global_id }); autoSetback(); }
     else statusEl.textContent = t("setbackHint");
   });
 
@@ -2296,6 +2421,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   function setDrawMode(on) {
     drawMode = on;
+    if (on) track("draw_area");
     drawBtn.classList.toggle("active", on);
     map.getContainer().style.cursor = on ? "crosshair" : "";
     if (on) {
@@ -2589,6 +2715,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // the data is gated on an allowlist in the database.
     const lawsBtn = document.getElementById("lawsBtn");
     if (lawsBtn) lawsBtn.hidden = !inS;
+    const statsBtn = document.getElementById("statsBtn");
+    if (statsBtn) statsBtn.hidden = !inS;
     authBtn.textContent = inS ? t("signOut") : t("signIn");
     authBtn.title = inS ? session.email ?? "" : "";
     if (!inS) {
@@ -2642,6 +2770,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // Leaving setback mode on would let its handler swallow the ruler's clicks.
     if (!measuring && setbackMode) setSetbackMode(false);
     measuring = !measuring;
+    if (measuring) track("measure");
     measureBtn.classList.toggle("active", measuring);
     map.getContainer().style.cursor = measuring ? "crosshair" : "";
     map.getContainer().classList.toggle("measuring", measuring);
@@ -2923,9 +3052,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   document.getElementById("exactBtn").addEventListener("click", () => {
     exactMode = !exactMode;
+    // Only turning it on, so the count is of people who wanted exact
+    // dimensions rather than of clicks on a toggle.
+    if (exactMode) track("exact_dims");
     document.getElementById("exactBtn").classList.toggle("active", exactMode);
     if (selectedProps) showPanel(selectedProps, selectedLayer);
   });
+
+  // An ordinary link, so the beacon has to outlive the navigation -- which is
+  // what sendBeacon is for.
+  document.getElementById("lawsBtn")?.addEventListener("click", () => track("laws"));
 
   // Vincenty inverse on the WGS84 ellipsoid. The national parcel layers are
   // Web Mercator (no metric geometry to measure directly), so side lengths are
@@ -4205,7 +4341,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
       correctionUi(props);
     panelEl.classList.add("visible");
     showSideLabels(props, layer);
-    document.getElementById("printBtn").addEventListener("click", () => printPlot(props));
+    document.getElementById("printBtn").addEventListener("click", () => {
+      track("print", { gov: props.gov_no, nbh: props.nbhood_no });
+      printPlot(props);
+    });
     wireCorrection(props);
     wireSidePicking(props);
     loadSetback(props.global_id);
@@ -4974,7 +5113,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   async function api(path) {
     // path arrives as "rpc/<fn>?args"; the proxy exposes it at /api/rpc/<fn>.
-    const res = await fetch(`${API_BASE}/${path}`);
+    // The two ids go with it so that a call which fails at the edge can be
+    // recorded against the session it failed in. They are the same random
+    // strings the usage counter uses and mean nothing anywhere else.
+    const res = await fetch(`${API_BASE}/${path}`, { headers: usageHeaders() });
     if (!res.ok) {
       // The proxy refuses a viewport bigger than it will serve. Saying so is
       // more use than "query failed": the caller can zoom in.
@@ -5325,11 +5467,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
       const exact = [normAr(places[0]?.name_ar), normAr(places[0]?.name_en)].includes(normAr(term));
       if (places.length === 1 && exact) {
         hideResults();
+        track("search_hit", { gov: places[0].gov_no, nbh: places[0].nbhood_no, detail: term });
         return gotoArea(places[0]);
       }
       if (places.length) showResults(places, term);
       const all = [...places, ...(await addressHits(term, places.length > 0))];
-      if (all.length) return showResults(all, term);
+      if (all.length) {
+        track("search_hit", { detail: term + " x" + all.length });
+        return showResults(all, term);
+      }
       rows = [];
     }
 
@@ -5337,6 +5483,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
       statusEl.textContent = t("noMatch");
       errEl.textContent = t("noMatchHint", term);
       errEl.classList.add("visible");
+      // What was typed into the search box and came back with nothing. Read
+      // beside the lookup misses, this is the list of what the data and the
+      // parser cannot yet answer.
+      track("search_miss", { detail: term });
       return;
     }
     // Block and parcel numbers repeat across the country -- dozens of
@@ -5833,6 +5983,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   nbhReportBtn.addEventListener("click", async () => {
     const gov = Number(selGov.value), nbh = Number(selNbh.value);
     if (!gov || !nbh) return;
+    track("area_report", { gov, nbh, detail: selBlk.value || null });
     const blk = selBlk.value || null; // a chosen block narrows the report to it
     nbhReportBtn.disabled = true;
     statusEl.textContent = t("analysing");
@@ -5861,6 +6012,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const nbh = selNbh.value;
     if (!nbh) return;
     const blk = selBlk.value || null;
+    track("show_area", { gov: Number(selGov.value), nbh: Number(nbh), detail: blk });
     statusEl.textContent = t("searching");
     hideResults();
     clearSelection();
@@ -6021,6 +6173,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
         return pa.long.localeCompare(pb.long, lang === "ar" ? "ar" : "en");
       });
     fillSelect(selBlk, t("selBlk"), blocks, (x) => x, (x) => blockLong(x));
+
+    // Which cities people actually ask about -- the one figure that says where
+    // data-quality work is worth doing.
+    const where = { gov: Number(selGov.value), nbh: Number(selNbh.value) };
+    track("place", where);
+    // And a city that offered no blocks at all. Either its blocks are genuinely
+    // unnumbered upstream or the lookup failed, and both arrive on screen as
+    // the same empty dropdown. Counted here, they stop being invisible.
+    if (!blocks.length) track("blocks_empty", { ...where, detail: String(rows.length) });
   });
 
   selBlk.addEventListener("change", async () => {
@@ -6109,17 +6270,29 @@ svg.leaflet-zoom-animated{will-change:transform;}
       api(`rpc/find_in_nbhood?gov=${q(selGov.value)}&nbh=${q(code)}&term=${q(term)}${blk}`)
     )).flat();
 
+    const where = { gov: Number(selGov.value), nbh: Number(selNbh.value) };
     if (!rows.length) {
       statusEl.textContent = t("noMatch");
       errEl.textContent = t("quickNone", term);
       errEl.classList.add("visible");
+      // The number somebody expected to find, and the city they expected to
+      // find it in. Every one of these is either a parcel the data is missing
+      // or a number the lookup reads wrongly, and until now they left no trace
+      // at all -- a search that found nothing was indistinguishable from a
+      // search nobody ran.
+      track("lookup_miss", { ...where, detail: term });
       return;
     }
     if (rows.length === 1) {
       hideResults();
+      track("lookup_hit", { ...where, detail: term });
       await gotoPlot(rows[0]);
       return;
     }
+    // Several parcels share the number. Recorded separately from a clean hit
+    // because it is a different experience -- the answer came back as a
+    // question -- and how often that happens is worth knowing.
+    track("candidates", { ...where, detail: `${term} x${rows.length}` });
     await showCandidates(rows, term);
   }
 
@@ -6219,6 +6392,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // Restore a previous sign-in before the first paint, so the Analyse button is
   // either there or not rather than appearing a moment later.
   loadSession();
+  // One per tab session, which is what makes a visit countable at all. Sent
+  // after the session is restored so the figures are not skewed by the owner's
+  // own page loads being indistinguishable from anyone else's -- a signed-in
+  // visit is still counted, but it can be told apart afterwards.
+  track("session", { detail: session ? "owner" : null });
   loadLandUseNames();
   loadZoneNames();
   loadPlaceNames();

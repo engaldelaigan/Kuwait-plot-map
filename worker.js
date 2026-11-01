@@ -51,6 +51,12 @@ const AUTHED_RPC = new Set([
   // so the proxy will forward it; the database checks the caller against an
   // allowlist of user ids, so a signed-in stranger gets an empty result.
   "building_laws_search", "building_law_docs",
+  // Usage figures on /stats.html, behind the same allowlist. Writing an event
+  // is deliberately NOT here: that goes through /api/ev below, so the country
+  // and device on every row are the ones Cloudflare resolved and not whatever
+  // a caller felt like claiming.
+  "usage_report", "usage_months", "set_month_cost", "prune_usage_events",
+  "roll_up_month",
 ]);
 
 // The largest area a single viewport request may cover, in square degrees.
@@ -174,7 +180,113 @@ async function dataVersion(env, ctx) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Usage events
+// ---------------------------------------------------------------------------
+// The page decides what is worth recording; this adds the two things only the
+// edge knows -- where the request came from and what kind of device asked --
+// and forwards the row. Those are taken from Cloudflare's own data rather than
+// from the request body, so a caller cannot claim to be somewhere it is not.
+//
+// Nothing here stores an IP address. The country and city are Cloudflare's
+// view of the network, which is the city, not the person; the visitor id is a
+// random string the browser made up for itself.
+
+// Three buckets, because the only question being asked of this is whether
+// phones deserve more attention than they have had.
+function deviceClass(ua) {
+  const s = ua || "";
+  if (/ipad|tablet|playbook|silk|android(?!.*mobile)/i.test(s)) return "tablet";
+  if (/mobile|iphone|ipod|android|blackberry|opera mini|iemobile|phone/i.test(s)) return "phone";
+  return "desktop";
+}
+
+const clip = (v, n) => {
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  return s ? s.slice(0, n) : null;
+};
+const int = (v) => {
+  const n = Number(v);
+  return Number.isInteger(n) ? n : null;
+};
+
+// Fire-and-forget: an event that cannot be written must never cost the visitor
+// anything, so this never throws and the caller never waits for it.
+function writeEvent(env, request, ev) {
+  const cf = request.cf ?? {};
+  const body = {
+    p_visitor: clip(ev.visitor, 64),
+    p_session: clip(ev.session, 64),
+    p_name: clip(ev.name, 40),
+    p_gov: int(ev.gov),
+    p_nbh: int(ev.nbh),
+    p_detail: clip(ev.detail, 120),
+    p_country: clip(cf.country, 2),
+    p_city: clip(cf.city, 60),
+    p_device: deviceClass(request.headers.get("user-agent")),
+    p_lang: ev.lang === "en" || ev.lang === "ar" ? ev.lang : null,
+    p_ref: clip(ev.ref, 80),
+  };
+  if (!body.p_visitor || !body.p_session || !body.p_name) return Promise.resolve();
+  return fetch(`${env.SUPABASE_URL}/rest/v1/rpc/record_event`, {
+    method: "POST",
+    headers: {
+      apikey: env.SUPABASE_KEY,
+      authorization: `Bearer ${env.SUPABASE_KEY}`,
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  }).catch(() => {});
+}
+
+// A failed API call, recorded by the edge rather than by the page.
+//
+// This is the gap that hid a real fault for a day: list_blocks_v3 returned 500
+// twice for the largest neighbourhood, the page caught it and rendered an empty
+// block list, and an empty list is indistinguishable from a city whose blocks
+// are genuinely unnumbered. Recorded here it cannot hide, and recording it here
+// rather than in the page means it is still recorded when the page's own
+// scripts are the thing that broke.
+//
+// The visitor and session come from headers the page sets on its API calls, so
+// a failure belongs to the session it happened in. Without them there is
+// nothing to attribute it to and nothing is written -- a count of anonymous
+// failures would pollute the visitor numbers it sits beside.
+function noteFailure(env, request, ctx, fn, status) {
+  const visitor = request.headers.get("x-kwp-v");
+  const session = request.headers.get("x-kwp-s");
+  if (!visitor || !session) return;
+  ctx.waitUntil(writeEvent(env, request, {
+    visitor,
+    session,
+    name: status === 429 ? "rate_limited" : "api_error",
+    detail: `${fn} ${status}`,
+    lang: request.headers.get("x-kwp-l"),
+  }));
+}
+
 export default {
+  // Freezes last month's and this month's figures so they survive the raw rows
+  // being pruned. Runs on the schedule in wrangler.jsonc; the function it calls
+  // does nothing if both months were already built in the last six hours, so
+  // running it more often than needed costs nothing.
+  async scheduled(event, env, ctx) {
+    if (!env.SUPABASE_KEY) return;
+    ctx.waitUntil(
+      fetch(`${env.SUPABASE_URL}/rest/v1/rpc/roll_up_recent`, {
+        method: "POST",
+        headers: {
+          apikey: env.SUPABASE_KEY,
+          authorization: `Bearer ${env.SUPABASE_KEY}`,
+          "content-type": "application/json",
+        },
+        body: "{}",
+      }).catch(() => {})
+    );
+  },
+
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
@@ -192,6 +304,11 @@ export default {
     if (env.RATE_LIMITER) {
       const { success } = await env.RATE_LIMITER.limit({ key: ip });
       if (!success) {
+        // Worth seeing. A real visitor hitting the ceiling means the ceiling is
+        // too low; a scraper hitting it means the ceiling is working. The two
+        // look identical here and are told apart afterwards by how many
+        // sessions are involved.
+        noteFailure(env, request, ctx, "rate_limit", 429);
         return json(429, { error: "too many requests" });
       }
     }
@@ -233,6 +350,24 @@ export default {
         if (hit) return hit;
       }
       target = `${env.SUPABASE_URL}/rest/v1/rpc/${fn}${url.search}`;
+    } else if (url.pathname === "/api/ev") {
+      // One event. Answered 204 before the write is confirmed: the page sends
+      // these with sendBeacon and does not wait, and a visitor must never be
+      // made to wait on bookkeeping either.
+      if (request.method !== "POST") return json(405, { error: "POST only" });
+      let ev;
+      try {
+        const text = await request.text();
+        if (text.length > 1024) return new Response(null, { status: 204 });
+        ev = JSON.parse(text);
+      } catch {
+        return new Response(null, { status: 204 });
+      }
+      ctx.waitUntil(writeEvent(env, request, {
+        visitor: ev.v, session: ev.s, name: ev.n,
+        gov: ev.g, nbh: ev.b, detail: ev.d, lang: ev.l, ref: ev.r,
+      }));
+      return new Response(null, { status: 204 });
     } else if (url.pathname === "/api/auth/token") {
       target = `${env.SUPABASE_URL}/auth/v1/token${url.search}`;
     } else if (url.pathname === "/api/streetview") {
@@ -253,6 +388,12 @@ export default {
       headers,
       body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.text(),
     });
+
+    // A failure the page is about to turn into an empty list. Recorded before
+    // the reply is built, so it is counted whatever the page decides to show.
+    if (res.status >= 500 || res.status === 429) {
+      noteFailure(env, request, ctx, url.pathname.replace("/api/rpc/", ""), res.status);
+    }
 
     // Copy the reply through, minus anything that would let a caller learn
     // about the upstream project.
