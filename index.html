@@ -355,6 +355,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
   }
   #results .res-item:last-child { border-bottom: none; }
   #results .res-item:hover { background: #ebe8df; }
+  /* Which candidate is open. The list stays up while they are compared, so
+     something has to say where you are in it -- a bar on the leading edge and
+     a tint light enough that the next row's hover state still shows. */
+  #results .res-item.current {
+    background: #e4eef8;
+    box-shadow: inset 3px 0 0 #1d6fd1;
+  }
+  [dir="rtl"] #results .res-item.current { box-shadow: inset -3px 0 0 #1d6fd1; }
+  #results .res-item.current b { color: #1a4f87; }
   #results .res-item b { font-size: 13px; font-weight: 600; }
   #results .res-item span { font-size: 11px; color: #5b6b60; }
 
@@ -2662,7 +2671,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
     else if (drawMode) setDrawMode(false);
     else if (!reportEl.hidden) { closeReport(); drawLayer.clearLayers(); }
     else if (setbackMode) { setSetbackMode(false); statusEl.textContent = ""; }
-    else if (resultsEl.classList.contains("visible")) hideResults();
+    // The list and the outlines on the map are one answer, so dismissing it
+    // dismisses both. They used to be cleared together by the first click on a
+    // row; now that the list survives being used, Esc is what ends it.
+    else if (resultsEl.classList.contains("visible")) { hideResults(); clearCandidates(); }
     else clearSelection();
   });
 
@@ -5415,10 +5427,21 @@ svg.leaflet-zoom-animated{will-change:transform;}
         // line describing it.
         clearTimeout(suggestTimer);
         suggestSeq++;
-        hideResults();
-        // The other candidates have served their purpose once one is chosen;
-        // leaving them outlined makes the chosen one the hardest to see.
-        clearCandidates();
+        // The list stays open. Several parcels sharing a number is the case it
+        // exists for, and telling them apart means opening one, looking at it,
+        // and going back for the next -- which closing on the first click made
+        // impossible, leaving no way back to the other candidates but typing
+        // the number again. It closes when the search is cleared, replaced by
+        // another, or dismissed with Esc.
+        //
+        // The outlines stay for the same reason, and which one is open is
+        // marked on the row and on the map instead of being implied by being
+        // the only thing left.
+        for (const other of resultsEl.querySelectorAll(".res-item.current")) {
+          other.classList.remove("current");
+        }
+        btn.classList.add("current");
+        markCandidate(h.global_id);
         if (h.kind === "area") return gotoArea(h);
         map.setView([h.lat, h.lon], 18, { animate: false });
         await new Promise((r) => setTimeout(r, 120));
@@ -5549,6 +5572,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
       const o = document.createElement("option");
       o.value = valueOf(it);
       o.textContent = labelOf(it);
+      // How much is in it, where the item knows. The combo uses this to break
+      // ties between equally good name matches, so the big city comes before
+      // the four-parcel strip that happens to share its first letters.
+      if (it && Number.isFinite(Number(it.plot_count))) o.dataset.w = String(it.plot_count);
       sel.appendChild(o);
     }
     sel.disabled = items.length === 0;
@@ -5595,11 +5622,59 @@ svg.leaflet-zoom-animated{will-change:transform;}
       .replace(/ة/g, "ه")
       .trim();
 
+    // Nearly every Kuwaiti place name begins with the article, so the first
+    // letters of a name are the letters it shares with everything else: 158 of
+    // the 186 cities contain "ال". Collected by substring and left in the
+    // list's own alphabetical order, المهبوله came 94th for "ال" and 18th for
+    // "الم" -- behind السالمي and الشدادية, which only hold those letters in
+    // the middle of a word. The filter was right; the order made it useless,
+    // and the way through was to type from the middle of the name instead.
+    //
+    // So matches are ranked rather than just gathered. A name that begins with
+    // what was typed comes before one that merely contains it, and the article
+    // is discounted on both sides, which makes "الم" read as "the places
+    // beginning with م" -- and "مه" put المهبوله first, where Enter takes it.
+    const bare = (s) => s.replace(/^ال/, "");
+    function rank(label, q) {
+      const n = norm(label);
+      if (n === q) return 0;
+      if (n.startsWith(q)) return 1;
+      const nb = bare(n);
+      const qb = bare(q);
+      // Only once what is left of the query is worth matching on. Stripping
+      // the article off "الم" leaves "م", and one letter admits every م place
+      // in the country whether it contains "الم" or not -- 44 matches where
+      // there had been 29, which buries the name further rather than less.
+      const useBare = qb.length >= 2;
+      if (useBare && nb.startsWith(qb)) return 2;
+      // A name is often several words -- ضاحية ابو فطيره -- and the word
+      // somebody types is not always the first one.
+      const words = n.split(/\s+/);
+      if (words.some((w) => w.startsWith(q))) return 3;
+      if (useBare && words.some((w) => bare(w).startsWith(qb))) return 4;
+      return n.includes(q) ? 5 : 6;
+    }
+
     function render(filter) {
       const q = norm(filter);
-      const matches = [...sel.options]
-        .filter((o) => o.value !== "")
-        .filter((o) => !q || norm(o.textContent).includes(q));
+      const all = [...sel.options].filter((o) => o.value !== "");
+      // Size breaks ties, then the alphabetical order the list was filled in.
+      //
+      // Twelve places begin with الم and المهبوله is among the last of them
+      // alphabetically, so ranking alone still left it halfway down a list
+      // nobody scrolls. Weight is the parcel count, stamped on the option by
+      // fillSelect, and it stands in for how likely a place is to be the one
+      // meant: a city of thirty thousand parcels is asked about more often
+      // than a strip of four. Only the neighbourhood list carries it; blocks
+      // and parcels have no count and keep their own order.
+      const w = (o) => Number(o.dataset.w || 0);
+      const matches = !q
+        ? all
+        : all
+            .map((o, i) => ({ o, i, r: rank(o.textContent, q) }))
+            .filter((x) => x.r < 6)
+            .sort((a, b) => a.r - b.r || w(b.o) - w(a.o) || a.i - b.i)
+            .map((x) => x.o);
       list.innerHTML = "";
       if (!matches.length) {
         const li = document.createElement("li");
@@ -6009,6 +6084,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // by looking at where they are.
   function clearCandidates() {
     candLayer.clearLayers();
+    // The id map goes with them, or the next shortlist starts out holding
+    // layers that are no longer on the map.
+    candShapes.clear();
   }
 
   async function quickFind() {
@@ -6050,6 +6128,22 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // parcels numbered 12 in the same neighbourhood are usually streets apart,
   // and seeing both is what tells you which one you meant.
   const CAND_STYLE = { color: "#1d6fd1", weight: 3, fillColor: "#3b9bff", fillOpacity: 0.3 };
+  // The ones not currently open: still there, still findable, no longer
+  // competing with the one being looked at.
+  const CAND_DIM = { color: "#7da7d4", weight: 2, fillColor: "#3b9bff", fillOpacity: 0.1 };
+  // Kept by id so a candidate can be restyled when its row is chosen.
+  const candShapes = new Map();
+
+  // Which candidate is open, on the map as well as in the list. The chosen one
+  // keeps its full outline but gives up its fill, so the selected-plot
+  // highlight underneath reads through instead of being tinted over by it --
+  // that tinting is why these all used to be cleared on the first click.
+  function markCandidate(globalId) {
+    if (!candShapes.size) return;
+    for (const [id, lyr] of candShapes) {
+      lyr.setStyle(id === String(globalId) ? { ...CAND_STYLE, fillOpacity: 0 } : CAND_DIM);
+    }
+  }
 
   async function showCandidates(rows, term) {
     const shapes = [];
@@ -6057,6 +6151,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       if (!r.geom) continue;
       const lyr = L.geoJSON(r.geom, { style: CAND_STYLE, interactive: false });
       lyr.addTo(candLayer);
+      candShapes.set(String(r.global_id), lyr);
       shapes.push(lyr);
     }
     if (shapes.length) {
