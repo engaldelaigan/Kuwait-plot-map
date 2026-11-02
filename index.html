@@ -3229,6 +3229,18 @@ svg.leaflet-zoom-animated{will-change:transform;}
       const q = uniq[uniq.length - 1];
       if (!q || Math.hypot((p[0] - q[0]) * kx, (p[1] - q[1]) * ky) > 0.05) uniq.push(p);
     }
+    // Including the duplicate that wraps. The loop above only ever looks back
+    // one point, so when the source stores the first corner twice -- once at
+    // each end of the ring, millimetres apart -- the second copy survives. Left
+    // in, the two copies cancel each other in the pass below: each sits exactly
+    // on the line between the other and its neighbour, so both are dropped and
+    // the parcel loses a corner. المرقاب 2/5 came out a triangle that way, and
+    // its third "side" was the 31.8 m diagonal of a 28 x 15 rectangle. Same
+    // 5 cm as above -- a point that close to the first corner is that corner.
+    if (uniq.length > 3) {
+      const f = uniq[0], l = uniq[uniq.length - 1];
+      if (Math.hypot((l[0] - f[0]) * kx, (l[1] - f[1]) * ky) <= 0.05) uniq.pop();
+    }
     if (uniq.length < 3) return closed ? ring : [...ring, ring[0]];
 
     // drop vertices that sit on the line between their neighbours
