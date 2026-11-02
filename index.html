@@ -1251,8 +1251,51 @@ svg.leaflet-zoom-animated{will-change:transform;}
     #printArea .foot {
       margin-top: 18px; padding-top: 6px; border-top: 1pt solid #ccd2cd;
       font-size: 8pt; color: #555;
+      /* A gutter the pinned code sits in. The code is out of the flow, so this
+         is the only thing keeping the footer's own text off it -- and it has
+         to be on the physical left in both languages, because that is where
+         the code is. A gutter rather than a full-width band along the bottom,
+         because a band would add its height to every sheet and there is none
+         to spare: measured against the real stylesheet, an ordinary parcel's
+         sheet is 231mm of A4's 269mm, and one with a full twelve-row side
+         column is 282mm, which already runs onto a second page before any of
+         this was added. The gutter costs nothing -- both figures are the same
+         with it as without. */
+      padding-left: 34mm;
     }
     #printArea .foot p { margin: 0 0 3px; }
+    /* Pinned to the bottom-left of the printed page rather than set in the
+       footer's flow, so it adds nothing to the sheet's height and cannot push
+       it onto another page. Fixed position in print resolves against the page
+       box, so left/bottom 0 is the inside corner of the 14mm @page margin.
+       On a sheet that runs to two pages -- which a twelve-row side column
+       already does -- a fixed element repeats, so the code is drawn on both,
+       and on the first it can land over the side tables. That is worth fixing
+       by making those sheets fit one page, not by moving the code.
+       Wider than the code it holds, so the coordinates underneath stay on one
+       line. The code itself is 24mm: 37 modules plus a four-module quiet zone
+       each side is 0.53mm a module, which a phone camera reads off paper at
+       arm's length with room to spare -- checked by rasterising it at print
+       size and decoding it back. */
+    #printArea .qr-block {
+      position: fixed; left: 0; bottom: 0;
+      width: 30mm; text-align: center; break-inside: avoid;
+    }
+    #printArea .qr-block .qr {
+      display: block; margin: 0 auto;
+      /* Chrome drops the white backing square as a "background graphic"
+         otherwise, and a code printed onto a tinted page does not scan. */
+      -webkit-print-color-adjust: exact; print-color-adjust: exact;
+    }
+    #printArea .qr-cap {
+      display: block; margin-top: 2px; font-size: 6.5pt; line-height: 1.25;
+      color: #6a746d;
+    }
+    #printArea .qr-coords {
+      display: block; font-family: ui-monospace, Consolas, monospace;
+      font-size: 6pt; color: #8a918c; white-space: nowrap;
+      direction: ltr; unicode-bidi: isolate;
+    }
     #printArea .foot .footline {
       display: flex; justify-content: space-between; gap: 12px; margin: 0;
     }
@@ -1566,6 +1609,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
         "المصدر: بيانات بلدية الكويت المساحية المتاحة للعموم. نسخة غير رسمية — " +
         "القياسات استرشادية ولا تغني عن المخطط المساحي المعتمد أو عن مسح ميداني.",
       printed: "تاريخ الطباعة",
+      // On paper the coordinates are unusable: nobody types 29.374167 into a
+      // phone. The code is the only part of the sheet that gets the reader to
+      // the ground it describes.
+      scanLocation: "امسح للموقع في خرائط جوجل",
     },
     en: {
       title: "Kuwait Plots",
@@ -1707,6 +1754,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
         "Source: Kuwait Municipality public cadastral data. Unofficial copy — measurements " +
         "are indicative and do not replace the approved cadastral plan or a survey.",
       printed: "Printed",
+      scanLocation: "Scan for the location in Google Maps",
     },
   };
 
@@ -4207,6 +4255,330 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return { metres, px: metres / mPerPx };
   }
 
+  // ---- QR code -----------------------------------------------------------
+  // A printed sheet is a dead end: it names a parcel and gives no way to go
+  // and stand on it. The coordinates are on the sheet, but nobody types
+  // 29.374167 into a phone, so a code is what actually gets a reader from the
+  // paper to the ground.
+  //
+  // Written out rather than pulled from a CDN: the sheet has to print from a
+  // cached page with no network, this file has no build step, and the encoder
+  // below is smaller than most libraries' loaders. Byte mode, error correction
+  // level M, versions 1 to 10 -- the maps URL is 67 bytes, which is version 5,
+  // and 10 leaves room without needing the large-version tables.
+  //
+  // Checked against the reference `qrcode` library module for module, over
+  // every version boundary from 1 to 10, and read back with a real decoder.
+  // Penalty rules 1 to 3 agree with it exactly; rule 4 follows ISO 18004 and
+  // zxing, which count whole 5% steps of deviation, where that library rounds
+  // any deviation at all up to a full step.
+  const QR_EC_PER_BLOCK = [0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26];
+  const QR_BLOCKS = [0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5];
+  const QR_MAX_VERSION = 10;
+
+  // GF(256), primitive polynomial x^8 + x^4 + x^3 + x^2 + 1.
+  const QR_EXP = new Uint8Array(256), QR_LOG = new Uint8Array(256);
+  for (let i = 0, x = 1; i < 255; i++) {
+    QR_EXP[i] = x; QR_LOG[x] = i;
+    x = (x << 1) ^ (x & 0x80 ? 0x11d : 0);
+  }
+  const qrMul = (a, b) => (a && b ? QR_EXP[(QR_LOG[a] + QR_LOG[b]) % 255] : 0);
+
+  function qrAlignPositions(ver) {
+    if (ver === 1) return [];
+    const n = Math.floor(ver / 7) + 2;
+    const step = Math.ceil((ver * 4 + 4) / (n * 2 - 2)) * 2;
+    // 6 stays first and the rest go in behind it. The order is not cosmetic:
+    // the three corners that already carry a finder pattern are identified by
+    // index below, so a list starting with the far edge instead skips the
+    // pattern that should be drawn and draws one on top of a finder -- which
+    // corrupts the map of reserved modules and scrambles every data bit after
+    // it. It still looks like a QR code. It does not scan.
+    const out = [6];
+    for (let pos = ver * 4 + 10; out.length < n; pos -= step) out.splice(1, 0, pos);
+    return out;
+  }
+
+  // Modules left for data and error correction once the function patterns are
+  // taken out. Derived rather than tabulated, so there is no table to mistype.
+  function qrRawCodewords(ver) {
+    let bits = (16 * ver + 128) * ver + 64;
+    if (ver >= 2) {
+      const n = Math.floor(ver / 7) + 2;
+      bits -= (25 * n - 10) * n - 55;
+      if (ver >= 7) bits -= 36;
+    }
+    return Math.floor(bits / 8);
+  }
+
+  const qrDataCodewords = (ver) =>
+    qrRawCodewords(ver) - QR_EC_PER_BLOCK[ver] * QR_BLOCKS[ver];
+
+  function qrGenPoly(degree) {
+    let g = [1];
+    for (let i = 0; i < degree; i++) {
+      const next = new Array(g.length + 1).fill(0);
+      for (let j = 0; j < g.length; j++) {
+        next[j] ^= g[j];
+        next[j + 1] ^= qrMul(g[j], QR_EXP[i]);
+      }
+      g = next;
+    }
+    return g;
+  }
+
+  function qrRemainder(data, g) {
+    const n = g.length - 1;
+    const res = new Array(n).fill(0);
+    for (const b of data) {
+      const factor = b ^ res.shift();
+      res.push(0);
+      if (factor) for (let i = 0; i < n; i++) res[i] ^= qrMul(g[i + 1], factor);
+    }
+    return res;
+  }
+
+  // Block sizes are not tabulated either: the standard's two block lengths
+  // fall out of the totals, every block is one of the two, and the shorter
+  // ones come first.
+  function qrAddEcc(data, ver) {
+    const blocks = QR_BLOCKS[ver], ecLen = QR_EC_PER_BLOCK[ver];
+    const raw = qrRawCodewords(ver);
+    const shortLen = Math.floor(raw / blocks);
+    const shortCount = blocks - (raw % blocks);
+    const g = qrGenPoly(ecLen);
+    const parts = [];
+    for (let i = 0, k = 0; i < blocks; i++) {
+      const len = shortLen - ecLen + (i < shortCount ? 0 : 1);
+      const dat = data.slice(k, k + len);
+      k += len;
+      const ecc = qrRemainder(dat, g);
+      // A placeholder keeps the short blocks the same length as the long ones,
+      // so the interleave below can walk them all on one index. It is dropped
+      // again as it is passed.
+      if (i < shortCount) dat.push(0);
+      parts.push(dat.concat(ecc));
+    }
+    const out = [];
+    for (let i = 0; i < parts[0].length; i++) {
+      for (let j = 0; j < parts.length; j++) {
+        if (i !== shortLen - ecLen || j >= shortCount) out.push(parts[j][i]);
+      }
+    }
+    return out;
+  }
+
+  const QR_MASKS = [
+    (r, c) => (r + c) % 2 === 0,
+    (r, c) => r % 2 === 0,
+    (r, c) => c % 3 === 0,
+    (r, c) => (r + c) % 3 === 0,
+    (r, c) => (Math.floor(r / 2) + Math.floor(c / 3)) % 2 === 0,
+    (r, c) => ((r * c) % 2) + ((r * c) % 3) === 0,
+    (r, c) => (((r * c) % 2) + ((r * c) % 3)) % 2 === 0,
+    (r, c) => (((r + c) % 2) + ((r * c) % 3)) % 2 === 0,
+  ];
+
+  function qrPenalty(g, size) {
+    let score = 0;
+    // Rule 1: runs of five or more of one colour.
+    for (let i = 0; i < size; i++) {
+      for (const line of [g[i], g.map((row) => row[i])]) {
+        let run = 1;
+        for (let j = 1; j < size; j++) {
+          if (line[j] === line[j - 1]) {
+            run++;
+            if (run === 5) score += 3; else if (run > 5) score += 1;
+          } else run = 1;
+        }
+      }
+    }
+    // Rule 2: 2x2 blocks of one colour.
+    for (let r = 0; r < size - 1; r++) {
+      for (let c = 0; c < size - 1; c++) {
+        const v = g[r][c];
+        if (v === g[r][c + 1] && v === g[r + 1][c] && v === g[r + 1][c + 1]) score += 3;
+      }
+    }
+    // Rule 3: anything a scanner could mistake for a finder pattern.
+    const A = [1, 0, 1, 1, 1, 0, 1, 0, 0, 0, 0];
+    const B = [0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1];
+    for (let i = 0; i < size; i++) {
+      for (const line of [g[i], g.map((row) => row[i])]) {
+        for (let j = 0; j + 11 <= size; j++) {
+          let a = true, b = true;
+          for (let k = 0; k < 11; k++) {
+            if (line[j + k] !== A[k]) a = false;
+            if (line[j + k] !== B[k]) b = false;
+          }
+          if (a) score += 40;
+          if (b) score += 40;
+        }
+      }
+    }
+    // Rule 4: whole 5% steps by which the dark/light balance misses even.
+    let dark = 0;
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) dark += g[r][c];
+    score += Math.floor(Math.abs((dark * 100) / (size * size) - 50) / 5) * 10;
+    return score;
+  }
+
+  function qrMatrix(text) {
+    const bytes = Array.from(new TextEncoder().encode(text));
+
+    let ver = 0;
+    for (let v = 1; v <= QR_MAX_VERSION; v++) {
+      if (bytes.length * 8 + 4 + (v < 10 ? 8 : 16) <= qrDataCodewords(v) * 8) { ver = v; break; }
+    }
+    if (!ver) return null; // longer than this encoder builds; the caller omits the code
+
+    const size = ver * 4 + 17;
+    const grid = [], fixed = [];
+    for (let i = 0; i < size; i++) {
+      grid.push(new Array(size).fill(0));
+      fixed.push(new Array(size).fill(0));
+    }
+    // x is the column and y the row throughout, which is the order the
+    // standard's own diagrams use.
+    const put = (x, y, dark) => { grid[y][x] = dark ? 1 : 0; fixed[y][x] = 1; };
+    const bitOf = (v, i) => (v >>> i) & 1;
+
+    for (let i = 0; i < size; i++) { put(6, i, i % 2 === 0); put(i, 6, i % 2 === 0); }
+    // Finder patterns, with their separators: dark at distance 0, 1 and 3,
+    // light at 2 and 4, measured as the larger of the two offsets.
+    for (const [cx, cy] of [[3, 3], [size - 4, 3], [3, size - 4]]) {
+      for (let dy = -4; dy <= 4; dy++) {
+        for (let dx = -4; dx <= 4; dx++) {
+          const d = Math.max(Math.abs(dx), Math.abs(dy)), x = cx + dx, y = cy + dy;
+          if (x >= 0 && x < size && y >= 0 && y < size) put(x, y, d !== 2 && d !== 4);
+        }
+      }
+    }
+    const ap = qrAlignPositions(ver);
+    for (let i = 0; i < ap.length; i++) {
+      for (let j = 0; j < ap.length; j++) {
+        const onFinder = (i === 0 && j === 0) ||
+                         (i === 0 && j === ap.length - 1) ||
+                         (i === ap.length - 1 && j === 0);
+        if (onFinder) continue;
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            put(ap[i] + dx, ap[j] + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+          }
+        }
+      }
+    }
+
+    // Level M is 0b00, so the five format bits are the mask number alone.
+    const drawFormat = (target, mask, reserve) => {
+      const set = (x, y, dark) => {
+        target[y][x] = dark ? 1 : 0;
+        if (reserve) fixed[y][x] = 1;
+      };
+      let rem = mask;
+      for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+      const bits = ((mask << 10) | rem) ^ 0x5412;
+      for (let i = 0; i <= 5; i++) set(8, i, bitOf(bits, i));
+      set(8, 7, bitOf(bits, 6));
+      set(8, 8, bitOf(bits, 7));
+      set(7, 8, bitOf(bits, 8));
+      for (let i = 9; i < 15; i++) set(14 - i, 8, bitOf(bits, i));
+      for (let i = 0; i < 8; i++) set(size - 1 - i, 8, bitOf(bits, i));
+      for (let i = 8; i < 15; i++) set(8, size - 15 + i, bitOf(bits, i));
+      set(8, size - 8, 1); // always dark
+    };
+    drawFormat(grid, 0, true); // reserves the area; rewritten once a mask is chosen
+
+    if (ver >= 7) {
+      let rem = ver;
+      for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1f25);
+      const bits = (ver << 12) | rem;
+      for (let i = 0; i < 18; i++) {
+        const dark = bitOf(bits, i), a = size - 11 + (i % 3), b = Math.floor(i / 3);
+        put(a, b, dark); put(b, a, dark);
+      }
+    }
+
+    const cap = qrDataCodewords(ver);
+    const bits = [];
+    const push = (val, len) => { for (let i = len - 1; i >= 0; i--) bits.push((val >>> i) & 1); };
+    push(4, 4);                              // byte mode
+    push(bytes.length, ver < 10 ? 8 : 16);   // and how many of them
+    for (const b of bytes) push(b, 8);
+    // Four zero bits terminate, and the rest round up to a whole codeword.
+    while (bits.length < cap * 8 && bits.length % 8 !== 0) bits.push(0);
+    const words = [];
+    for (let i = 0; i < bits.length; i += 8) {
+      let b = 0;
+      for (let j = 0; j < 8; j++) b = (b << 1) | bits[i + j];
+      words.push(b);
+    }
+    // The two pad codewords the standard names, alternating to the end.
+    for (let i = 0; words.length < cap; i++) words.push(i % 2 ? 0x11 : 0xec);
+    const codewords = qrAddEcc(words, ver);
+
+    // Two-module columns, right to left, snaking up then down. Column 6 is the
+    // timing pattern and is not a column of data at all, so it is stepped over
+    // rather than skipped module by module.
+    let bit = 0;
+    for (let right = size - 1; right >= 1; right -= 2) {
+      if (right === 6) right = 5;
+      for (let v = 0; v < size; v++) {
+        for (let j = 0; j < 2; j++) {
+          const c = right - j;
+          const r = ((right + 1) & 2) === 0 ? size - 1 - v : v;
+          if (fixed[r][c]) continue;
+          grid[r][c] = bit < codewords.length * 8
+            ? (codewords[bit >>> 3] >>> (7 - (bit & 7))) & 1
+            : 0;
+          bit++;
+        }
+      }
+    }
+
+    let best = null, bestScore = Infinity;
+    for (let m = 0; m < 8; m++) {
+      const test = grid.map((row) => row.slice());
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) if (!fixed[r][c] && QR_MASKS[m](r, c)) test[r][c] ^= 1;
+      }
+      // The format bits name the mask, so they go in before the grid is
+      // scored: they are part of what gets scored.
+      drawFormat(test, m, false);
+      const score = qrPenalty(test, size);
+      if (score < bestScore) { bestScore = score; best = test; }
+    }
+    return { size, modules: best };
+  }
+
+  // Horizontal runs merged into one rect each: the version 5 code the maps URL
+  // produces has about 680 dark modules and comes out as 358 rects, which is
+  // most of the saving available without going to a path.
+  //
+  // The quiet zone is inside the viewBox rather than left to the page, because
+  // four clear modules on every side is what makes a code readable and CSS
+  // margins are easier to lose than geometry.
+  function qrSvg(text, size, quiet = 4) {
+    const qr = qrMatrix(text);
+    if (!qr) return "";
+    const total = qr.size + quiet * 2;
+    const rects = [];
+    for (let r = 0; r < qr.size; r++) {
+      let c = 0;
+      while (c < qr.size) {
+        if (!qr.modules[r][c]) { c++; continue; }
+        let len = 1;
+        while (c + len < qr.size && qr.modules[r][c + len]) len++;
+        rects.push(`<rect x="${c + quiet}" y="${r + quiet}" width="${len}" height="1"/>`);
+        c += len;
+      }
+    }
+    return `<svg class="qr" viewBox="0 0 ${total} ${total}" width="${size}" height="${size}" ` +
+           `xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" aria-hidden="true">` +
+           `<rect width="${total}" height="${total}" fill="#fff"/>` +
+           `<g fill="#000">${rects.join("")}</g></svg>`;
+  }
+
   let selectedProps = null;
   let selectedLayer = null;
 
@@ -4373,13 +4745,26 @@ svg.leaflet-zoom-animated{will-change:transform;}
     "landuse=industrial": ["منطقة صناعية", "Industrial land"],
   };
 
-  function mapsLink(props) {
+  // One function, because the panel's button and the printed QR code have to
+  // point at the same spot. Two copies of this line would eventually disagree
+  // about the number of decimals or the centroid, and the disagreement would
+  // only show up as a pin in the wrong place on somebody's phone.
+  function mapsUrl(props) {
     const c = plotCentre(props.geom);
-    if (!c) return "";
+    if (!c) return null;
     // Coordinates rather than an address: Google does not know Kuwaiti parcel
     // numbers, and a wrong address is worse than a pin on the right spot.
     // On a phone this hands off to the Google Maps app.
-    const url = `https://www.google.com/maps/search/?api=1&query=${c[1].toFixed(6)},${c[0].toFixed(6)}`;
+    //
+    // Six decimals is about 11 cm, far finer than the data warrants, but the
+    // length is what sets the QR version and 67 bytes still fits version 5 --
+    // so trimming them would shrink nothing that matters.
+    return `https://www.google.com/maps/search/?api=1&query=${c[1].toFixed(6)},${c[0].toFixed(6)}`;
+  }
+
+  function mapsLink(props) {
+    const url = mapsUrl(props);
+    if (!url) return "";
     return `<a class="btn" href="${url}" target="_blank" rel="noopener noreferrer">${t("openInMaps")}</a>`;
   }
 
@@ -4864,6 +5249,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
     ].filter(Boolean);
     const heading = idParts.length ? idParts.join(" &mdash; ") : (nbh ?? t("parcel"));
     const printedAt = new Date().toLocaleString(lang === "ar" ? "ar-KW" : "en-GB");
+    // The same URL the panel's button opens, and the same centroid it is built
+    // from, printed underneath at the same six decimals so what the code says
+    // and what the paper says cannot drift apart. A parcel whose ring is too
+    // degenerate to have a centroid gets no code rather than a wrong one.
+    const mapUrl = mapsUrl(props);
+    const centre = mapUrl ? plotCentre(props.geom) : null;
 
     document.getElementById("printArea").innerHTML = `
       <div class="masthead">
@@ -4894,6 +5285,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
           <span class="ref">${props.global_id ?? ""}</span>
         </p>
       </div>
+      ${mapUrl ? `<div class="qr-block">
+        ${qrSvg(mapUrl, "24mm")}
+        <span class="qr-cap">${t("scanLocation")}</span>
+        <span class="qr-coords">${centre[1].toFixed(6)}, ${centre[0].toFixed(6)}</span>
+      </div>` : ""}
     `;
     if (plan) await preloadTiles(plan.urls.map((u) => u.url));
     window.print();
