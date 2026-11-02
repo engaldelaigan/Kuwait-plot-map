@@ -417,6 +417,28 @@ svg.leaflet-zoom-animated{will-change:transform;}
     max-width: 700px;
     flex-wrap: wrap;
   }
+  /* Folding the tools away.
+     On a phone the header was six rows of controls above a strip of map --
+     the map, which is the thing people come for, got less than half the
+     screen. The tools row folds behind this button, because measuring and
+     analysing are reached for occasionally while the map is looked at
+     constantly. The search block stays: it is the other reason to be here.
+     Nothing changes above 1024px, where the row costs a single line. */
+  #toolsBtn { display: none; }
+  #toolsBtn .chev { font-size: 9px; transition: transform 0.15s; }
+  #toolsBtn[aria-expanded="true"] .chev { transform: rotate(180deg); }
+  #toolsBtn[aria-expanded="true"] {
+    background: var(--accent); color: #fff; border-color: var(--accent);
+  }
+  /* Folded below 1024 rather than at the 760 the rest of the phone styling
+     uses: the row only fits on one line in a genuinely wide window. In a
+     half-screen or dual-screen window around 900px it already wraps to two or
+     three lines and the header was taking two fifths of the height there too,
+     which is the second screen this came from. */
+  @media (max-width: 1024px) {
+    #toolsBtn { display: inline-flex; align-items: center; gap: 4px; }
+    body.tools-closed #toolRow { display: none !important; }
+  }
   #modeTabs { display: flex; }
   #modeTabs button {
     font: inherit;
@@ -1258,6 +1280,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
         <button type="button" id="modePaci" class="active" data-i18n="modePaci">PACI</button>
         <button type="button" id="modeAddr" data-i18n="modeAddr">Address</button>
       </div>
+      <!-- Shows the tools row, on the screens where it is folded away. Beside
+           the mode tabs so it costs no row of its own, and hidden entirely on
+           a desktop, where that row is one line and hiding it would only add
+           a click. -->
+      <button id="toolsBtn" type="button" aria-expanded="false">
+        <span data-i18n="tools">Tools</span>
+        <span class="chev" aria-hidden="true">&#9662;</span>
+      </button>
       <form id="searchForm" autocomplete="off">
         <input id="searchInput" type="search" data-i18n-ph="paciPlaceholder" />
         <button type="submit" data-i18n="search">Search</button>
@@ -1289,7 +1319,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
         </div>
       </div>
     </div>
-    <div style="display:flex; align-items:center; gap:10px;">
+    <!-- The tools. On a phone this row and the search block together were
+         taking half the screen, so it folds away behind the أدوات button --
+         see #toolsBtn. -->
+    <div id="toolRow" style="display:flex; align-items:center; gap:10px;">
       <span id="status">connecting&hellip;</span>
       <label id="snapWrap"><input type="checkbox" id="snapChk" checked /> <span data-i18n="snapStart">Snap to lines</span></label>
       <label id="perpWrap"><input type="checkbox" id="perpChk" checked /> <span data-i18n="perp">&perp; to edge</span></label>
@@ -1405,6 +1438,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       landUse: "الاستعمال",
       buildingLaws: "أنظمة البناء",
       usageStats: "الاستخدام",
+      tools: "أدوات",
       zoneSource: "حسب المخطط الهيكلي للبلدية",
       osmSays: "على الطبيعة",
       osmSource: "مصدر: OpenStreetMap (غير رسمي)",
@@ -1549,6 +1583,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       landUse: "Land use",
       buildingLaws: "Building rules",
       usageStats: "Usage",
+      tools: "Tools",
       zoneSource: "From the municipality's master plan",
       osmSays: "On the ground",
       osmSource: "Source: OpenStreetMap (unofficial)",
@@ -1931,6 +1966,28 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // failures instead of leaving a silent blank map.
   setTimeout(() => map.invalidateSize(), 200);
   window.addEventListener("resize", () => map.invalidateSize());
+
+  // ---- The folding tools row ----------------------------------------------
+  // Closed unless the viewer has opened it before. Closed is only visible
+  // below 1024px -- the class is always on the body and the media query decides
+  // whether it means anything -- so a desktop is untouched either way.
+  //
+  // The map's container changes height when this opens or closes, and Leaflet
+  // only finds that out when told, so invalidateSize follows every toggle the
+  // same way it follows a language switch.
+  const toolsBtn = document.getElementById("toolsBtn");
+  let toolsOpen = storage.get("kwplots-tools") === "1";
+  function applyTools() {
+    document.body.classList.toggle("tools-closed", !toolsOpen);
+    toolsBtn.setAttribute("aria-expanded", toolsOpen ? "true" : "false");
+    setTimeout(() => map.invalidateSize(), 60);
+  }
+  toolsBtn.addEventListener("click", () => {
+    toolsOpen = !toolsOpen;
+    storage.set("kwplots-tools", toolsOpen ? "1" : "0");
+    applyTools();
+  });
+  applyTools();
   let tileErrorShown = false;
   tiles.on("tileerror", () => {
     if (tileErrorShown) return;
