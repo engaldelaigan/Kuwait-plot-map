@@ -684,9 +684,23 @@ svg.leaflet-zoom-animated{will-change:transform;}
      a phone hands off to the Google Maps app. */
   #panel a.btn {
     display: block; box-sizing: border-box; text-align: center;
-    text-decoration: none; margin-top: 6px;
+    text-decoration: none;
     background: var(--paper); color: var(--ink); border-color: var(--line);
   }
+  /* What you can do with the parcel, one per line.
+
+     Print and Share are the same colour and the same width, and with nothing
+     between them they ran together into one tall block of green -- two
+     buttons that looked like one. Each border is the same colour as its own
+     fill, so there is no edge to see; what shows them apart is the paper
+     between them.
+
+     One gap on the group rather than a margin on each, because there were
+     three different answers before -- none between the buttons, 6px above
+     the Maps link, 8px on every button on a phone -- and the margins are
+     turned off in here so this stays the only one. */
+  #panel dd.actions { display: flex; flex-direction: column; gap: 8px; }
+  #panel dd.actions > * { margin-top: 0; }
 
   /* While measuring, stop the browser treating a drag as a page scroll. */
   #map.measuring { touch-action: none; }
@@ -5180,7 +5194,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       `<div><dt>${t("setback")}</dt><dd id="setbackVal">…</dd></div>` +
       `<div><dt>${sidesLabel}</dt>${sidesHtml}` +
       `<dd id="sideTotal" class="side-total" hidden></dd></div>` +
-      `<dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button>` +
+      `<dd class="actions" style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button>` +
       `<button id="shareBtn" type="button">${t("share")}</button>` +
       mapsLink(props) +
       `</dd>` +
