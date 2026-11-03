@@ -4156,8 +4156,33 @@ svg.leaflet-zoom-animated{will-change:transform;}
     fillAllNbhoods();
   }
 
+  // The municipality writes the same ending both ways. Of the 186 names it
+  // publishes, 46 end in ة and 48 in ه, and the inconsistency is inside a
+  // single name as often as between two: "الدبدبة" and "المتياهه" are
+  // words of the one place. Shown as they arrive, a quarter of the cities in
+  // the country are spelled wrong -- الشاميه, اشبيليه, اشبيلية being
+  // Seville -- so a word-final ه is written ة, which is what it is.
+  //
+  // Except where it is a real ه. الله ends in one, which covers سعد العبد الله
+  // and the chalets at ميناء عبد الله; and three names I could not confirm are
+  // kept as published -- قارووه and عوهه, the two outer islands, and
+  // المتياهه. Better the municipality's spelling than my guess at it.
+  //
+  // Display only. Nothing is matched or grouped on this: normAr folds ة to
+  // ه before any comparison, so both spellings always found the place and
+  // still do, and the records behind the name are untouched.
+  const KEEP_HA = new RegExp("(?:الله|قارووه|عوهه|المتياهه)$");
+  // Word by word, not only at the end: the ending is wrong inside a name as
+  // often as at the end of one -- الصليبيه الصناعيه 1 has it twice and then
+  // finishes on a digit, and ضاحيه عبد الله السالم has it in the first word
+  // and a word that must keep it in the middle.
+  const fixAr = (s) =>
+    typeof s === "string"
+      ? s.replace(/\S+/g, (w) => (KEEP_HA.test(w) ? w : w.replace(/ه$/, "ة")))
+      : s;
+
   function placeName(p) {
-    const pick = lang === "ar" ? p.name_ar || p.name_en : p.name_en || p.name_ar;
+    const pick = lang === "ar" ? fixAr(p.name_ar) || p.name_en : p.name_en || fixAr(p.name_ar);
     // Two places carry "-1" as their name -- the causeway islands, which the
     // layer never named. Listed raw they were two entries both called "-1".
     // The code is not a name either, but it is true and it tells them apart.
@@ -5035,7 +5060,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // paper lead to the same spot.
   function shareText(props) {
     const pick = (ar, en) => (lang === "ar" ? ar || en : en || ar);
-    const nbh = pick(props.neighborhood_ar, props.neighborhood_en);
+    const nbh = pick(fixAr(props.neighborhood_ar), props.neighborhood_en);
     const street = pick(props.street_ar, props.street_en);
     const area = props.measured_area ?? props.computed_area;
     const head = [
@@ -5088,7 +5113,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   function pdfName(props) {
     const pick = (ar, en) => (lang === "ar" ? ar || en : en || ar);
     const parts = [
-      pick(props.neighborhood_ar, props.neighborhood_en),
+      pick(fixAr(props.neighborhood_ar), props.neighborhood_en),
       blockShort(props.block_no),
       props.parcel_no ? `${t("parcel")} ${props.parcel_no}` : null,
       props.house_no ? `${t("house")} ${props.house_no}` : null,
@@ -5110,7 +5135,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     selectedProps = props;
     selectedLayer = layer;
     const pick = (ar, en) => (lang === "ar" ? ar || en : en || ar);
-    const nbh = pick(props.neighborhood_ar, props.neighborhood_en);
+    const nbh = pick(fixAr(props.neighborhood_ar), props.neighborhood_en);
     const street = pick(props.street_ar, props.street_en);
     const title = pick(props.title_ar, props.title_en);
     // Sides are pickable: click several and the panel totals them. Measuring a
@@ -5582,7 +5607,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   async function printPlot(props) {
     const pick = (ar, en) => (lang === "ar" ? ar || en : en || ar);
-    const nbh = pick(props.neighborhood_ar, props.neighborhood_en);
+    const nbh = pick(fixAr(props.neighborhood_ar), props.neighborhood_en);
     const street = pick(props.street_ar, props.street_en);
     // Setbacks are computed here rather than read off whatever happens to be
     // drawn, so a printout is complete even if nothing was measured on screen.
@@ -6498,7 +6523,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
                     </button>`;
           }
           const street = pick(h.street_ar, h.street_en);
-          const nbh = pick(h.neighborhood_ar, h.neighborhood_en);
+          const nbh = pick(fixAr(h.neighborhood_ar), h.neighborhood_en);
           // Lead with the parcel's identity, then where it is -- the same
           // result can be reached by parcel number or by street name, and
           // both readings need the area to tell duplicates apart.
@@ -6642,7 +6667,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // it does on the map -- including the unnamed ones, which this used to
     // show as two entries both called "-1".
     return (r.nbhood_no != null ? placeName(r) : null)
-      || (lang === "ar" ? r.name_ar || r.name_en : r.name_en || r.name_ar)
+      || (lang === "ar" ? fixAr(r.name_ar) || r.name_en : r.name_en || fixAr(r.name_ar))
       || "—";
   }
 
