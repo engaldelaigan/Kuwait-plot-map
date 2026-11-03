@@ -772,12 +772,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
     html[dir="rtl"] #panel { left: 0; right: 0; }
     #panel dt { font-size: 9px; margin-top: 5px; }
     #panel > div { break-inside: avoid; -webkit-column-break-inside: avoid; }
-    #panel button {
-      padding: 8px;
-      font-size: 13px;
-      column-span: all;
-      margin-top: 8px;
-    }
+    /* A finger, not a pointer. The side rows are left out on purpose: they
+       set their own padding and read as a list, not a row of buttons. */
+    #panel button, #panel a.btn { padding: 8px; font-size: 13px; }
+    /* The actions run the full width of the sheet, which is also the only
+       way all three of them fit on it. The dd is a flex column, and a flex
+       container fragments across columns: Print and Share took the second
+       column and Open in Maps was pushed into a third that does not exist,
+       379px into a 375px box -- the sheet scrolled 559px wide and the link
+       sat off the right edge of the screen.
+
+       The span has to be set here. A spanner must be a child of the multicol
+       box itself, and this was on the buttons one level further in, where it
+       never did anything. */
+    #panel dd.actions { column-span: all; }
 
     #mag {
       width: 132px;
