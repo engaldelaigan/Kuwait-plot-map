@@ -805,14 +805,34 @@ svg.leaflet-zoom-animated{will-change:transform;}
   /* left, not inset-inline-start: the zoom buttons and the legend are both
      pinned left in either direction, and a logical property sent this one to
      the right in Arabic, where it hid behind the layers control. */
-  #locateBtn {
-    position: absolute; top: 88px; left: 10px; z-index: 900;
+  /* The two small square buttons over the map look alike because they are
+     alike: same size, same weight, same corner radius. */
+  #locateBtn, #barToggle {
+    position: absolute; z-index: 900;
     width: 30px; height: 30px; padding: 0;
     display: flex; align-items: center; justify-content: center;
     border: 1px solid var(--line); border-radius: 6px;
     background: var(--paper); color: #3c6e47; cursor: pointer;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
   }
+  #locateBtn { top: 88px; left: 10px; }
+  /* Puts the whole top bar away, so the map can have the window. The tools
+     fold in the header only takes the second row, and on a phone the mode
+     tabs and the search block are most of what is left.
+
+     Over the map rather than in the bar, because a button that hides its
+     own container cannot also be the way back.
+
+     Third in the left-hand column, under the zoom buttons and the locate
+     button, which is where this map keeps its small square controls. Not
+     the top-right corner, which looks empty and is not: the layer switcher
+     sits there expanded on a desktop and as an icon on a phone, and the
+     magnifier moves there too while measuring on a narrow screen. */
+  #barToggle { top: 126px; left: 10px; }
+  #barToggle .chev { font-size: 11px; line-height: 1; transition: transform 0.15s; }
+  /* One glyph, turned over: it points the way the bar will go. */
+  body.bar-hidden #barToggle .chev { transform: rotate(180deg); }
+  body.bar-hidden header { display: none; }
   #locateBtn:hover { background: #eef3ef; }
   #locateBtn:disabled { opacity: 0.55; cursor: default; }
   body.map-dark #locateBtn {
@@ -952,12 +972,13 @@ svg.leaflet-zoom-animated{will-change:transform;}
      are drawn above this (their controls are z-index 800). Tucked under them
      the first rows' counts were hidden. */
   #legend {
-    /* Below the zoom buttons AND the locate button, which share this column. */
-    position: absolute; top: 128px; z-index: 550;
+    /* Below the zoom buttons, the locate button and the bar toggle, which
+       share this column. */
+    position: absolute; top: 166px; z-index: 550;
     background: rgba(246, 244, 238, 0.95);
     border: 1px solid var(--line); border-radius: 8px;
     padding: 7px 9px; font-size: 11px; line-height: 1.5;
-    max-height: calc(100% - 180px); overflow-y: auto;
+    max-height: calc(100% - 218px); overflow-y: auto;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
     left: 10px;
   }
@@ -1218,8 +1239,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
        occupies has to be this wrapper, whose height printPlot sets. */
     #printArea .plan-fit { margin: 12px 0; }
     /* The printed map: tiles positioned absolutely, overlay on top. */
+    /* Height comes from the markup, not from here: there are two maps on the
+       sheet now and they are different shapes. */
     #printArea .plan {
-      position: relative; width: 620px; height: 430px; overflow: hidden;
+      position: relative; width: 620px; overflow: hidden;
       margin: 0 auto; border: 1px solid #888;
       /* Scaled from the top edge, so the map stays where it starts and
          gives up height downwards, and stays centred at any scale. */
@@ -1228,10 +1251,17 @@ svg.leaflet-zoom-animated{will-change:transform;}
       -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
     #printArea .plan img { position: absolute; width: 256px; height: 256px; }
-    #printArea .plan svg { position: absolute; left: 0; top: 0; width: 620px; height: 430px; }
+    #printArea .plan svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
     /* The labels on the plan are lengths and setbacks, and the sheet is a
        right-to-left document, so without this they print as "m 32.7". */
     #printArea .plan svg text { direction: ltr; unicode-bidi: isolate; }
+    /* Says which map this is, because two maps of the same place at
+       different scales need telling apart at a glance. Mirror of .attrib,
+       at the other end of the box. */
+    #printArea .plan .maplabel {
+      position: absolute; left: 3px; top: 2px; font-size: 7pt; color: #333;
+      background: rgba(255,255,255,0.75); padding: 0 3px;
+    }
     #printArea .plan .attrib {
       position: absolute; right: 3px; bottom: 2px; font-size: 7pt; color: #333;
       background: rgba(255,255,255,0.75); padding: 0 3px;
@@ -1434,6 +1464,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
         <path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
       </svg>
     </button>
+    <!-- Title and label are set from script, not data-i18n-title, because
+         what it says depends on the state as well as the language. -->
+    <button id="barToggle" type="button" aria-expanded="true">
+      <span class="chev" aria-hidden="true">&#9650;</span>
+    </button>
     <div id="drawBar" hidden>
       <button id="drawDone" type="button" disabled></button>
       <button id="drawUndo" type="button" data-i18n="undo">Undo</button>
@@ -1520,6 +1555,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       buildingLaws: "أنظمة البناء",
       usageStats: "الاستخدام",
       tools: "أدوات",
+      hideBar: "إخفاء الشريط العلوي",
+      share: "مشاركة",
+      contextMap: "الموقع من المنطقة",
+      detailMap: "القسيمة",
+      showBar: "إظهار الشريط العلوي",
       zoneSource: "حسب المخطط الهيكلي للبلدية",
       osmSays: "على الطبيعة",
       osmSource: "مصدر: OpenStreetMap (غير رسمي)",
@@ -1669,6 +1709,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       buildingLaws: "Building rules",
       usageStats: "Usage",
       tools: "Tools",
+      hideBar: "Hide the top bar",
+      share: "Share",
+      contextMap: "Where this is",
+      detailMap: "The parcel",
+      showBar: "Show the top bar",
       zoneSource: "From the municipality's master plan",
       osmSays: "On the ground",
       osmSource: "Source: OpenStreetMap (unofficial)",
@@ -1915,6 +1960,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return typeof v === "function" ? v(...args) : v;
   };
 
+  // What the button says is what pressing it will do, so it depends on the
+  // state as well as the language -- which is why applyLang calls this too.
+  // Declared rather than assigned, and it reads the state back off the body,
+  // so calling it before the toggle above has been set up is safe.
+  function labelBarToggle() {
+    const b = document.getElementById("barToggle");
+    if (!b) return;
+    const hidden = document.body.classList.contains("bar-hidden");
+    const label = t(hidden ? "showBar" : "hideBar");
+    b.title = label;
+    b.setAttribute("aria-label", label);
+    b.setAttribute("aria-expanded", hidden ? "false" : "true");
+  }
+
   function applyLang() {
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === "ar" ? "rtl" : "ltr";
@@ -1930,6 +1989,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
     }
     // Re-render anything built from JS strings.
     refreshSelectPlaceholders();
+    labelBarToggle();
     if (typeof applyAuthUi === "function") applyAuthUi(); // button says Sign in / Sign out
     if (selectedProps) showPanel(selectedProps, selectedLayer);
   }
@@ -2061,6 +2121,29 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // The map's container changes height when this opens or closes, and Leaflet
   // only finds that out when told, so invalidateSize follows every toggle the
   // same way it follows a language switch.
+  // The whole top bar can be put away, which is the only way to give the map
+  // the entire window -- the tools fold below takes the second row and leaves
+  // the mode tabs, the search box and the address cascade where they are.
+  //
+  // Shown by default: a first visit that opened on a bare map with no search
+  // box would be a worse map, not a better one. The choice is remembered
+  // after that, the same way the tools fold is.
+  const barToggle = document.getElementById("barToggle");
+  let barShown = storage.get("kwplots-bar") !== "0";
+  function applyBar() {
+    document.body.classList.toggle("bar-hidden", !barShown);
+    labelBarToggle();
+    // The map container just changed height and Leaflet only finds that out
+    // when told, exactly as with the tools fold and a language switch.
+    setTimeout(() => map.invalidateSize(), 60);
+  }
+  barToggle.addEventListener("click", () => {
+    barShown = !barShown;
+    storage.set("kwplots-bar", barShown ? "1" : "0");
+    applyBar();
+  });
+  applyBar();
+
   const toolsBtn = document.getElementById("toolsBtn");
   let toolsOpen = storage.get("kwplots-tools") === "1";
   function applyTools() {
@@ -4243,7 +4326,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // own projection, so the overlay lines up exactly with the imagery.
   const PRINT_W = 620, PRINT_H = 430, TILE = 256;
 
-  function printMapPlan(geomWgs) {
+  // The box and the zoom are arguments because the sheet now carries two
+  // maps of the same parcel: the detail one, and a shorter, wider one a few
+  // zoom levels back that says where in the neighbourhood this is.
+  function printMapPlan(geomWgs, w = PRINT_W, h = PRINT_H, zoomOut = 0) {
     const lonlat = geomWgs?.coordinates?.[0];
     if (!lonlat) return null;
     const bounds = L.latLngBounds(lonlat.map(([lon, lat]) => L.latLng(lat, lon)));
@@ -4254,12 +4340,16 @@ svg.leaflet-zoom-animated{will-change:transform;}
     for (; zoom > 13; zoom--) {
       const a = map.project(bounds.getNorthWest(), zoom);
       const b = map.project(bounds.getSouthEast(), zoom);
-      if (Math.abs(b.x - a.x) <= PRINT_W * 0.62 && Math.abs(b.y - a.y) <= PRINT_H * 0.62) break;
+      if (Math.abs(b.x - a.x) <= w * 0.62 && Math.abs(b.y - a.y) <= h * 0.62) break;
     }
+    // Stepping back from whatever fitted, rather than to a fixed zoom: how
+    // far out you have to go to see the surroundings depends on how big the
+    // parcel is. 13 is the floor the loop above already uses.
+    zoom = Math.max(13, zoom - zoomOut);
 
     const mid = map.project(centre, zoom);
-    const originX = mid.x - PRINT_W / 2;
-    const originY = mid.y - PRINT_H / 2;
+    const originX = mid.x - w / 2;
+    const originY = mid.y - h / 2;
     const toPx = (lon, lat) => {
       const p = map.project(L.latLng(lat, lon), zoom);
       return [p.x - originX, p.y - originY];
@@ -4267,8 +4357,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
     const sat = map.hasLayer(satellite);
     const urls = [];
-    const x0 = Math.floor(originX / TILE), x1 = Math.floor((originX + PRINT_W) / TILE);
-    const y0 = Math.floor(originY / TILE), y1 = Math.floor((originY + PRINT_H) / TILE);
+    const x0 = Math.floor(originX / TILE), x1 = Math.floor((originX + w) / TILE);
+    const y0 = Math.floor(originY / TILE), y1 = Math.floor((originY + h) / TILE);
     const max = Math.pow(2, zoom);
     for (let tx = x0; tx <= x1; tx++) {
       for (let ty = y0; ty <= y1; ty++) {
@@ -4330,29 +4420,60 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // exactly the height the map gave up.
   function fitToPage(area) {
     area.classList.add("measuring");
-    const box = area.getBoundingClientRect();
-    const code = area.querySelector(".qr-block");
-    const band = code ? code.offsetHeight : 0;
-    const column = code ? code.offsetWidth : 0;
-    // Only the tables that actually reach into that column. One or two of
-    // them sit centred, well clear of it; it takes three to reach the edge.
-    let tables = 0;
-    for (const t of area.querySelectorAll("table.sides")) {
-      const b = t.getBoundingClientRect();
-      if (b.left - box.left < column) tables = Math.max(tables, b.bottom - box.top);
+
+    // How much is over, and what there is to pay with. Called again if the
+    // context map is dropped, because dropping it changes both.
+    const measure = () => {
+      const box = area.getBoundingClientRect();
+      const code = area.querySelector(".qr-block");
+      const band = code ? code.offsetHeight : 0;
+      const column = code ? code.offsetWidth : 0;
+      // Only the tables that actually reach into that column. One or two of
+      // them sit centred, well clear of it; it takes three to reach the edge.
+      let tables = 0;
+      for (const t of area.querySelectorAll("table.sides")) {
+        const b = t.getBoundingClientRect();
+        if (b.left - box.left < column) tables = Math.max(tables, b.bottom - box.top);
+      }
+      const fits = [...area.querySelectorAll(".plan-fit")];
+      return {
+        excess: Math.max(area.scrollHeight - PAGE_PX,
+                         tables ? tables - (PAGE_PX - band) : 0),
+        fits,
+        total: fits.reduce((sum, f) => sum + Number(f.dataset.h || 0), 0),
+      };
+    };
+
+    let { excess, fits, total } = measure();
+
+    // Two maps that will not both fit are worse than one that does. At the
+    // floor the detail map is 110mm across and the context strip is 26mm
+    // deep -- one too coarse to measure anything on and one too shallow to
+    // place anything in. So the context map goes first and the detail map
+    // gets the room back; the parcel is what the sheet is for.
+    const context = area.querySelector(".plan-fit.context");
+    if (context && excess > 0 && total && 1 - excess / total < MIN_PLAN_SCALE) {
+      context.remove();
+      ({ excess, fits, total } = measure());
     }
-    const excess = Math.max(area.scrollHeight - PAGE_PX,
-                            tables ? tables - (PAGE_PX - band) : 0);
+
     area.classList.remove("measuring");
     if (excess <= 0) return;
-    const fit = area.querySelector(".plan-fit");
-    const plan = area.querySelector(".plan");
+    // Whatever maps are left pay in proportion, so the sheet loses exactly
+    // the excess whether it is carrying one map or two. Each box declares the
+    // height it wants in data-h, so this works from the natural size rather
+    // than from whatever a previous pass left behind.
+    //
     // Nothing to give: a parcel whose ring was too degenerate to put on a
     // basemap gets the plain outline instead, and that is already small.
-    if (!fit || !plan) return;
-    const scale = Math.max(MIN_PLAN_SCALE, 1 - excess / (PRINT_H + 2));
-    fit.style.height = `${Math.ceil((PRINT_H + 2) * scale)}px`;
-    plan.style.transform = `scale(${scale})`;
+    if (!total) return;
+    const scale = Math.max(MIN_PLAN_SCALE, 1 - excess / total);
+    for (const f of fits) {
+      const plan = f.querySelector(".plan");
+      if (!plan) continue;
+      f.style.height = `${Math.ceil(Number(f.dataset.h) * scale)}px`;
+      plan.style.transform = `scale(${scale})`;
+    }
   }
 
   // ---- QR code -----------------------------------------------------------
@@ -4868,6 +4989,92 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return `<a class="btn" href="${url}" target="_blank" rel="noopener noreferrer">${t("openInMaps")}</a>`;
   }
 
+  // The panel's own formatters return HTML -- superscripts, spans, entities --
+  // and a message is plain text. Letting the browser parse it is both shorter
+  // and more correct than a list of replacements.
+  function asText(html) {
+    const d = document.createElement("div");
+    d.innerHTML = html;
+    return (d.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  // The parcel written out for a message: the same facts the panel is showing
+  // and the printed sheet carries, in the language on screen, and then the
+  // Google Maps link. The link is the part that matters -- the rest says what
+  // the place is, but that is what gets the reader to it.
+  //
+  // The same URL the panel's button opens and the sheet's code encodes, from
+  // the one mapsUrl, so a parcel sent in a message and one handed over on
+  // paper lead to the same spot.
+  function shareText(props) {
+    const pick = (ar, en) => (lang === "ar" ? ar || en : en || ar);
+    const nbh = pick(props.neighborhood_ar, props.neighborhood_en);
+    const street = pick(props.street_ar, props.street_en);
+    const area = props.measured_area ?? props.computed_area;
+    const head = [
+      props.parcel_no ? `${t("parcel")} ${props.parcel_no}` : null,
+      blockShort(props.block_no) || null,
+    ].filter(Boolean).join(" — ") || nbh || t("parcel");
+
+    const lines = [head];
+    const place = [nbh, props.governorate].filter(Boolean).join(" · ");
+    if (place) lines.push(place);
+    const add = (label, value) => { if (value) lines.push(`${label}: ${asText(String(value))}`); };
+    add(t("street"), street);
+    add(t("house"), props.house_no);
+    add(t("area"), area == null ? null : fmtNum(area, "m&sup2;"));
+    add(t("landUse"), landUseText(props));
+
+    const url = mapsUrl(props);
+    if (url) lines.push("", url);
+    lines.push(t("brand") + " · kuwaitplot.com");
+    return lines.join("\n");
+  }
+
+  // Hands the parcel to whatever the device can send with. On a phone that is
+  // the system sheet, which is where WhatsApp actually lives -- there is no
+  // point naming one app when the list is the user's own.
+  //
+  // Most desktop browsers have no share sheet, so there the fallback is
+  // WhatsApp's own hand-off URL, which opens the desktop app when it is
+  // installed and the web client when it is not.
+  async function sharePlot(props) {
+    const text = shareText(props);
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: t("brand"), text });
+        return;
+      } catch (e) {
+        // Dismissing the sheet is a decision, not a failure -- falling
+        // through to WhatsApp would be overriding it.
+        if (e && e.name === "AbortError") return;
+      }
+    }
+    window.open("https://wa.me/?text=" + encodeURIComponent(text), "_blank", "noopener");
+  }
+
+  // What the browser offers to call the file when the sheet is saved as a PDF:
+  // Chrome takes it from the document title, so printPlot sets that and puts
+  // it back. The address rather than the GIS key, because a folder of these
+  // wants to sort by place; the key is on the sheet itself for the one case
+  // where the address is ambiguous.
+  function pdfName(props) {
+    const pick = (ar, en) => (lang === "ar" ? ar || en : en || ar);
+    const parts = [
+      pick(props.neighborhood_ar, props.neighborhood_en),
+      blockShort(props.block_no),
+      props.parcel_no ? `${t("parcel")} ${props.parcel_no}` : null,
+      props.house_no ? `${t("house")} ${props.house_no}` : null,
+    ].filter(Boolean);
+    // A parcel with no address at all still has to be called something, and
+    // its key is better than the browser's "document".
+    const name = parts.join(" - ") || props.global_id || t("brand");
+    // \ / : * ? " < > | cannot appear in a Windows file name. Chrome would
+    // strip or substitute them on its own; doing it here makes the result
+    // predictable instead of browser-dependent.
+    return name.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+  }
+
   function showPanel(props, layer) {
     // Picks belong to one parcel. showPanel is also how the panel re-renders
     // in place (language switch, a saved correction), so only a genuine change
@@ -4922,6 +5129,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       `<div><dt>${sidesLabel}</dt>${sidesHtml}` +
       `<dd id="sideTotal" class="side-total" hidden></dd></div>` +
       `<dd style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button>` +
+      `<button id="shareBtn" type="button">${t("share")}</button>` +
       mapsLink(props) +
       `</dd>` +
       correctionUi(props);
@@ -4930,6 +5138,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
     document.getElementById("printBtn").addEventListener("click", () => {
       track("print", { gov: props.gov_no, nbh: props.nbhood_no });
       printPlot(props);
+    });
+    document.getElementById("shareBtn").addEventListener("click", () => {
+      track("share", { gov: props.gov_no, nbh: props.nbhood_no });
+      sharePlot(props);
     });
     wireCorrection(props);
     wireSidePicking(props);
@@ -5251,8 +5463,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // fitToPage adjusts it; the map inside is always drawn at 620x430. Plus
     // the 1px border each side. Everything in the map scales together, so
     // the scale bar and the north arrow stay true at any size.
-    return `<div class="plan-fit" style="height:${PRINT_H + 2}px">
-      <div class="plan">${imgs}
+    return `<div class="plan-fit" data-h="${PRINT_H + 2}" style="height:${PRINT_H + 2}px">
+      <div class="plan" style="height:${PRINT_H}px">${imgs}
       <svg viewBox="0 0 ${PRINT_W} ${PRINT_H}" xmlns="http://www.w3.org/2000/svg">
         ${context}
         ${kerbs}
@@ -5271,6 +5483,59 @@ svg.leaflet-zoom-animated{will-change:transform;}
           <text x="${bar.px / 2}" y="-9" font-size="11" font-weight="700" text-anchor="middle" fill="#17211b" stroke="#fff" stroke-width="3" paint-order="stroke">${bar.metres} m</text>
         </g>
       </svg>
+      <span class="maplabel">${t("detailMap")}</span>
+      <span class="attrib">${plan.sat ? "Imagery © Esri" : "© OpenStreetMap"}</span>
+    </div></div>`;
+  }
+
+  // The second map: the same parcel a few zoom levels back, so the sheet says
+  // where in the neighbourhood this is and not only what shape it is. Short
+  // and wide, because what the detail map is missing is the far side of the
+  // street, not more sky.
+  //
+  // Deliberately not buildPrintMap with flags. That one draws the
+  // neighbouring parcels, the kerb lines, the side numbers, the lengths, the
+  // setbacks, the picked edges and the drawn measurements; at this scale all
+  // of it would land on top of itself. What is wanted here is a parcel, a
+  // ring round it and a scale bar.
+  const CONTEXT_H = 150, CONTEXT_ZOOM_OUT = 3;
+
+  function buildContextMap(props) {
+    const plan = printMapPlan(props.geom, PRINT_W, CONTEXT_H, CONTEXT_ZOOM_OUT);
+    if (!plan) return "";
+    const { toPx, urls, zoom } = plan;
+
+    const imgs = urls
+      .map((tl) => `<img src="${tl.url}" style="left:${tl.left}px; top:${tl.top}px" crossorigin="anonymous" />`)
+      .join("");
+
+    const px = simplifyRing(props.geom.coordinates[0]).map(([lon, lat]) => toPx(lon, lat));
+    const pts = px.map((p) => `${p[0]},${p[1]}`).join(" ");
+    let cx = 0, cy = 0;
+    for (let i = 0; i < px.length - 1; i++) { cx += px[i][0]; cy += px[i][1]; }
+    cx /= px.length - 1; cy /= px.length - 1;
+
+    const lat = L.latLngBounds(props.geom.coordinates[0].map(([lo, la]) => L.latLng(la, lo)))
+      .getCenter().lat;
+    const bar = printScaleBar(zoom, lat);
+
+    return `<div class="plan-fit context" data-h="${CONTEXT_H + 2}" style="height:${CONTEXT_H + 2}px">
+      <div class="plan" style="height:${CONTEXT_H}px">${imgs}
+      <svg viewBox="0 0 ${PRINT_W} ${CONTEXT_H}" xmlns="http://www.w3.org/2000/svg">
+        <polygon points="${pts}" fill="rgba(60,110,71,0.45)" stroke="#2f5d3a" stroke-width="1.5" />
+        <!-- Three zoom levels out an ordinary parcel is a few millimetres
+             across, which on paper is a smudge. The ring is what the eye
+             actually finds; the outline inside it is the answer. -->
+        <circle cx="${cx}" cy="${cy}" r="15" fill="none" stroke="#c0392b" stroke-width="2" />
+        <circle cx="${cx}" cy="${cy}" r="15" fill="none" stroke="#fff" stroke-width="4" opacity="0.45" />
+        <g transform="translate(14,${CONTEXT_H - 14})">
+          <line x1="0" y1="0" x2="${bar.px}" y2="0" stroke="#17211b" stroke-width="3" />
+          <line x1="0" y1="-5" x2="0" y2="5" stroke="#17211b" stroke-width="3" />
+          <line x1="${bar.px}" y1="-5" x2="${bar.px}" y2="5" stroke="#17211b" stroke-width="3" />
+          <text x="${bar.px / 2}" y="-9" font-size="11" font-weight="700" text-anchor="middle" fill="#17211b" stroke="#fff" stroke-width="3" paint-order="stroke">${bar.metres} m</text>
+        </g>
+      </svg>
+      <span class="maplabel">${t("contextMap")}</span>
       <span class="attrib">${plan.sat ? "Imagery © Esri" : "© OpenStreetMap"}</span>
     </div></div>`;
   }
@@ -5316,8 +5581,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // of a 269mm page, against a map worth 121mm and furniture worth 76mm to
     // 102mm depending on how long the parcel's names are. Twelve rows came
     // to 282mm and spilled onto a second page. Eight is 24 sides in three
-    // columns -- the widest list this sheet has had to lay out -- and leaves
-    // the map at full size on an ordinary sheet.
+    // columns with the map still full size on an ordinary sheet, and the
+    // columns go on filling past that -- measured, 39 sides fit a page with
+    // the longest names in the data and 48 with ordinary ones.
+    //
+    // Not every parcel fits: one in the data has 93 sides, which is three
+    // columns of 31 and two pages however the map is scaled. Those were
+    // always going to be two pages; what changed is that an ordinary parcel
+    // no longer is.
     //
     // Width is the cheaper of the two, which is why the columns are filled
     // first and fitToPage only shrinks the map once they are full.
@@ -5357,6 +5628,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
     const plan = printMapPlan(props.geom);
     const planHtml = plan ? buildPrintMap(props, setbacks) : `<div class="diagram">${buildPlotSvg(props.geom, props.sides, setbacks)}</div>`;
+    // Only alongside a real map. On the fallback outline there is no basemap
+    // to put the parcel in context on, so a second one would be a second
+    // empty box.
+    const contextHtml = plan ? buildContextMap(props) : "";
     const area = props.measured_area ?? props.computed_area;
 
     // One heading, then one table. The old sheet said the parcel, block,
@@ -5396,6 +5671,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
         ${cell(t("perimeter"), num(fmtSide(perimeter)))}
       </div>
       ${planHtml}
+      ${contextHtml}
       <div class="sides-wrap">${sidesTables}</div>
       ${chosen.length
         ? `<p class="picked-total"><b>${t("sidesPicked", chosen.length)}</b> ` +
@@ -5420,7 +5696,23 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // height -- and because there must be no paint between building the
     // sheet and fitting it.
     fitToPage(sheet);
-    if (plan) await preloadTiles(plan.urls.map((u) => u.url));
+    // Every tile on the sheet, both maps' worth, read back off the markup
+    // rather than from the plan that built it -- one list that cannot fall
+    // out of step with what is actually on the page.
+    const tiles = [...sheet.querySelectorAll(".plan img")].map((im) => im.src);
+    if (tiles.length) await preloadTiles(tiles);
+
+    // Chrome names a saved PDF after the document title, so the file lands as
+    // the parcel's address instead of thirty copies of the site's name. Put
+    // back afterwards, on the event rather than the next line, because
+    // window.print() does not reliably block until the dialog is gone.
+    const wasTitled = document.title;
+    document.title = pdfName(props);
+    const restore = () => {
+      document.title = wasTitled;
+      window.removeEventListener("afterprint", restore);
+    };
+    window.addEventListener("afterprint", restore);
     window.print();
   }
 
