@@ -6658,6 +6658,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
     for (let i = 0; i < nbhRows.length; i++) {
       if (selNbh.options[i + 1]) selNbh.options[i + 1].textContent = nbhLabel(nbhRows[i]);
     }
+    // The list was put in order by the names it was filled with, and those
+    // names have just changed language underneath it, so what is on screen is
+    // in the other alphabet's order: 86 of the 185 steps down the English list
+    // ran backwards, which is no order to scroll. Rows and options are moved
+    // together, so nbhRows[i] stays opposite options[i + 1] for the next pass.
+    if (nbhRows.length && selNbh.options.length > nbhRows.length) {
+      const collator = new Intl.Collator(lang === "ar" ? "ar" : "en");
+      const order = nbhRows
+        .map((_, i) => i)
+        .sort((a, b) => collator.compare(nbhLabel(nbhRows[a]), nbhLabel(nbhRows[b])));
+      const opts = order.map((i) => selNbh.options[i + 1]);
+      nbhRows = order.map((i) => nbhRows[i]);
+      for (const o of opts) selNbh.appendChild(o);
+    }
     // The comboboxes show the option text, so they have to be repainted after
     // a language switch or they keep the previous language's labels.
     for (const s of [selGov, selNbh, selBlk, selPar]) s._combo?.sync();
@@ -6724,6 +6738,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       .replace(/[إأآا]/g, "ا")
       .replace(/ى/g, "ي")
       .replace(/ة/g, "ه")
+      // Anything that is not a letter or a digit is a word break, so a name
+      // written with a hyphen and a query written with a space come to the
+      // same query. Thirty-nine of the 186 names hold " - ", and not one of
+      // them could be found by anybody who typed a space there.
+      .replace(/[^\p{L}\p{N}]+/gu, " ")
       .trim();
 
     // Nearly every Kuwaiti place name begins with the article, so the first
@@ -6731,36 +6750,114 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // the 186 cities contain "ال". Collected by substring and left in the
     // list's own alphabetical order, المهبوله came 94th for "ال" and 18th for
     // "الم" -- behind السالمي and الشدادية, which only hold those letters in
-    // the middle of a word. The filter was right; the order made it useless,
-    // and the way through was to type from the middle of the name instead.
+    // the middle of a word. The filter was right; the order made it useless.
     //
-    // So matches are ranked rather than just gathered. A name that begins with
-    // what was typed comes before one that merely contains it, and the article
-    // is discounted on both sides, which makes "الم" read as "the places
-    // beginning with م" -- and "مه" put المهبوله first, where Enter takes it.
+    // So matches are ranked rather than merely gathered, and the article is
+    // discounted on both sides, which makes "الم" read as "the places
+    // beginning with م" -- and "مه" puts المهبوله first, where Enter takes it.
     const bare = (s) => s.replace(/^ال/, "");
-    function rank(label, q) {
-      const n = norm(label);
-      if (n === q) return 0;
-      if (n.startsWith(q)) return 1;
-      const nb = bare(n);
-      const qb = bare(q);
-      // Only once what is left of the query is worth matching on. Stripping
-      // the article off "الم" leaves "م", and one letter admits every م place
-      // in the country whether it contains "الم" or not -- 44 matches where
-      // there had been 29, which buries the name further rather than less.
-      const useBare = qb.length >= 2;
-      if (useBare && nb.startsWith(qb)) return 2;
-      // A name is often several words -- ضاحية ابو فطيره -- and the word
-      // somebody types is not always the first one.
-      const words = n.split(/\s+/);
-      if (words.some((w) => w.startsWith(q))) return 3;
-      if (useBare && words.some((w) => bare(w).startsWith(qb))) return 4;
-      return n.includes(q) ? 5 : 6;
+
+    // Ranking was not enough, because every test here used to be a test on one
+    // unbroken run of characters: what was typed had to appear in the name
+    // exactly as typed, in that order, with nothing in between. Measured
+    // against the live list of 186 names, that made most of them unfindable by
+    // anyone writing out the name they knew.
+    //
+    //   * "Al Jabriya" -- which is how most of these places are written --
+    //     found nothing, for 168 of the 186: the label is "Jabriya", and
+    //     "al jabriya" is not inside it.
+    //   * A space typed where the label holds a hyphen found nothing, for all
+    //     39 compound names.
+    //   * In Arabic, dropping the و that joins two names found nothing; so did
+    //     typing the words in another order, and so did running them together.
+    //
+    // What was left was to type from the middle of a name, or to scroll.
+    //
+    // So the query is matched word by word. Every word somebody types has to
+    // begin some word of the name, and that is the whole test: words they leave
+    // out do not count against them, the order they come in does not matter,
+    // and a name written with a hyphen is a name written with a space. The
+    // article is a word of its own in the Latin spellings and the head of the
+    // first word in Arabic, so it is discounted either way before any of this.
+    const ARTICLE = /^(?:al|el|ال)$/;
+    const parts = (str) => {
+      const ws = str.split(" ").filter(Boolean);
+      const meat = ws.filter((w) => !ARTICLE.test(w));
+      // Unless the article is all there is so far, which still has to narrow
+      // the list to something.
+      return meat.length ? meat : ws;
+    };
+
+    // Each word of the query claims a different word of the name, so two words
+    // typed cannot both be answered by the one word. Null when some word of the
+    // query answers to nothing in the name.
+    function fit(name, query) {
+      const taken = new Array(name.length).fill(false);
+      let ordered = true;
+      let last = -1;
+      for (const q of query) {
+        const qb = bare(q);
+        // The article comes off the query only when what is left is worth
+        // matching on. Stripping it from "الم" leaves "م", and one letter admits
+        // every م place in the country -- 44 matches where there had been 29,
+        // which buries the name further rather than less.
+        const useBare = qb.length >= 2;
+        let at = -1;
+        for (let i = 0; i < name.length; i++) {
+          if (taken[i]) continue;
+          if (name[i].startsWith(q) || (useBare && bare(name[i]).startsWith(qb))) {
+            at = i;
+            break;
+          }
+        }
+        if (at < 0) return null;
+        taken[at] = true;
+        if (at < last) ordered = false;
+        last = at;
+      }
+      return { ordered, fromStart: taken[0] };
     }
 
+    // Lower is better, and 700 or more is no match. The hundreds say what kind
+    // of match it is: the whole name first, then the word-by-word fits in the
+    // order a reader would expect them, and last the two runs-of-characters
+    // tests, which are what still catch a name typed with the spaces left out
+    // of it.
+    //
+    // The units are the words of the name the query did not account for, which
+    // settles the places whose names are each other's beginnings. Nine of them
+    // start with Shuwaikh -- the port, the three industrial areas, Health,
+    // Educational, Administration, section 16 -- and typing the name of the one
+    // that is just Shuwaikh put it fourth, behind whichever of the others held
+    // the most parcels. Fewest words left over wins, so it comes first.
+    function rank(key, q) {
+      if (key.n === q.n) return 0;
+      if (key.n.startsWith(q.n)) return 100;
+      // Never negative: a query with more words than the name cannot fit it,
+      // and on the runs-of-characters tests below the query is one long word.
+      const spare = Math.min(Math.max(key.words.length - q.words.length, 0), 99);
+      const f = fit(key.words, q.words);
+      if (f) return (f.fromStart ? (f.ordered ? 200 : 400) : (f.ordered ? 300 : 400)) + spare;
+      if (key.joined.startsWith(q.joined)) return 500 + spare;
+      if (key.joined.includes(q.joined)) return 600 + spare;
+      return 700;
+    }
+
+    // Normalising and splitting every label on every keystroke is wasted work
+    // on a parcel list that runs into the hundreds, so each option carries its
+    // own, thrown away when the label changes underneath it -- which is what a
+    // language switch does.
+    function keyOf(o) {
+      if (o._keyFor !== o.textContent) {
+        const t = norm(o.textContent);
+        o._keyFor = o.textContent;
+        o._key = { n: t, words: parts(t), joined: t.replace(/ /g, "") };
+      }
+      return o._key;
+    }
     function render(filter) {
-      const q = norm(filter);
+      const typed = norm(filter);
+      const q = { n: typed, words: parts(typed), joined: typed.replace(/ /g, "") };
       const all = [...sel.options].filter((o) => o.value !== "");
       // Size breaks ties, then the alphabetical order the list was filled in.
       //
@@ -6772,11 +6869,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
       // than a strip of four. Only the neighbourhood list carries it; blocks
       // and parcels have no count and keep their own order.
       const w = (o) => Number(o.dataset.w || 0);
-      const matches = !q
+      const matches = !typed
         ? all
         : all
-            .map((o, i) => ({ o, i, r: rank(o.textContent, q) }))
-            .filter((x) => x.r < 6)
+            .map((o, i) => ({ o, i, r: rank(keyOf(o), q) }))
+            .filter((x) => x.r < 700)
             .sort((a, b) => a.r - b.r || w(b.o) - w(a.o) || a.i - b.i)
             .map((x) => x.o);
       list.innerHTML = "";
