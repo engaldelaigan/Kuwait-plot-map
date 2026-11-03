@@ -805,9 +805,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
   /* left, not inset-inline-start: the zoom buttons and the legend are both
      pinned left in either direction, and a logical property sent this one to
      the right in Arabic, where it hid behind the layers control. */
-  /* The two small square buttons over the map look alike because they are
-     alike: same size, same weight, same corner radius. */
-  #locateBtn, #barToggle {
+  #locateBtn {
     position: absolute; z-index: 900;
     width: 30px; height: 30px; padding: 0;
     display: flex; align-items: center; justify-content: center;
@@ -816,22 +814,52 @@ svg.leaflet-zoom-animated{will-change:transform;}
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
   }
   #locateBtn { top: 88px; left: 10px; }
+
   /* Puts the whole top bar away, so the map can have the window. The tools
      fold in the header only takes the second row, and on a phone the mode
      tabs and the search block are most of what is left.
 
-     Over the map rather than in the bar, because a button that hides its
-     own container cannot also be the way back.
+     A tab on the bar's own bottom edge, because the bar is what it acts on.
+     It laps over the border -- half of it on the bar, half hanging into the
+     map -- and the two share a background, so the join does not read as a
+     seam and the tab belongs to the bar rather than to the map. It has to be
+     outside the bar all the same: a button that hides its own container
+     cannot also be the way back.
 
-     Third in the left-hand column, under the zoom buttons and the locate
-     button, which is where this map keeps its small square controls. Not
-     the top-right corner, which looks empty and is not: the layer switcher
-     sits there expanded on a desktop and as an icon on a phone, and the
-     magnifier moves there too while measuring on a narrow screen. */
-  #barToggle { top: 126px; left: 10px; }
-  #barToggle .chev { font-size: 11px; line-height: 1; transition: transform 0.15s; }
+     Shallow for a reason. Every control along the top of the map -- the zoom
+     buttons, the layer switcher, "Search this area" -- starts 10px into the
+     map pane, so a tab that stops short of that line is clear of all three
+     at any width and in either text direction, and the map keeps the corners
+     it already had.
+
+     Left of centre rather than centred, because of where it has to go when
+     the bar is away: there is no border to lap then, so it drops to the top
+     of the window and is fully in the map's own top strip, where the only x
+     free of the zoom column, the centred "Search this area" and the
+     right-hand layer switcher at both phone and desktop widths is this one.
+     Shifting 9px down is better than moving sideways -- a control that
+     changes corners is a control you have to look for. */
+  #barToggle {
+    position: absolute; z-index: 900;
+    top: -9px; left: 46px;
+    width: 54px; height: 18px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--line); border-top: 0;
+    border-radius: 0 0 8px 8px;
+    background: var(--paper); color: #3c6e47; cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.12);
+  }
+  #barToggle:hover { background: #eef3ef; }
+  /* No dark-map variant, unlike the locate button beneath it: this one is
+     furniture of the bar, which stays paper-coloured whatever the map does. */
+  #barToggle .chev { font-size: 9px; line-height: 1; transition: transform 0.15s; }
   /* One glyph, turned over: it points the way the bar will go. */
   body.bar-hidden #barToggle .chev { transform: rotate(180deg); }
+  /* Nothing above it to lap, and a negative offset would put it off the top
+     of the window, so it sits on the edge instead -- all four sides drawn. */
+  body.bar-hidden #barToggle {
+    top: 0; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px;
+  }
   body.bar-hidden header { display: none; }
   #locateBtn:hover { background: #eef3ef; }
   #locateBtn:disabled { opacity: 0.55; cursor: default; }
@@ -972,13 +1000,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
      are drawn above this (their controls are z-index 800). Tucked under them
      the first rows' counts were hidden. */
   #legend {
-    /* Below the zoom buttons, the locate button and the bar toggle, which
-       share this column. */
-    position: absolute; top: 166px; z-index: 550;
+    /* Below the zoom buttons AND the locate button, which share this column. */
+    position: absolute; top: 128px; z-index: 550;
     background: rgba(246, 244, 238, 0.95);
     border: 1px solid var(--line); border-radius: 8px;
     padding: 7px 9px; font-size: 11px; line-height: 1.5;
-    max-height: calc(100% - 218px); overflow-y: auto;
+    max-height: calc(100% - 180px); overflow-y: auto;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
     left: 10px;
   }
