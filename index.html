@@ -1143,10 +1143,17 @@ svg.leaflet-zoom-animated{will-change:transform;}
      reads at a glance as "everyone's tools, then mine". */
   #drawBtn:not(.active), .hdr-link { border-color: #7da88a; color: #2f5d3a; }
 
-  @media print {
-    #app { display: none !important; }
+  /* The printed sheet's own styling, and deliberately not inside
+     @media print although the sheet is only ever printed.
+
+     printPlot has to measure the sheet it has just built, to know how much
+     the map must give up to keep the whole thing on one page, and a rule
+     that lives inside @media print is not applied to anything on screen for
+     it to measure. The sheet stays invisible all the same: #printArea is
+     display:none further up, and only @media print and .measuring below
+     ever turn it on. */
+  @media all {
     #printArea {
-      display: block;
       padding: 0 4mm;
       color: #000;
       font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -1204,10 +1211,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
     #printArea .meta dd .src-note { display: block; font-size: 7pt; font-weight: 400; color: #6a746d; }
     #printArea .mono { font-family: ui-monospace, Consolas, monospace; font-size: 8.5pt; }
     #printArea .diagram { margin: 16px 0; text-align: center; }
+    /* The map is drawn at one size and then scaled to whatever height the
+       sheet has left over, so a parcel with a long side list keeps its map
+       instead of pushing the sheet onto a second page. A transform changes
+       what is painted and not what is laid out, so the space the scaled map
+       occupies has to be this wrapper, whose height printPlot sets. */
+    #printArea .plan-fit { margin: 12px 0; }
     /* The printed map: tiles positioned absolutely, overlay on top. */
     #printArea .plan {
       position: relative; width: 620px; height: 430px; overflow: hidden;
-      margin: 12px auto; border: 1px solid #888;
+      margin: 0 auto; border: 1px solid #888;
+      /* Scaled from the top edge, so the map stays where it starts and
+         gives up height downwards, and stays centred at any scale. */
+      transform-origin: top center;
       /* Without this Chrome drops the tinted plot fill from the printout. */
       -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
@@ -1248,30 +1264,37 @@ svg.leaflet-zoom-animated{will-change:transform;}
       margin: 10px 0 0; font-size: 10.5pt; color: #0d3c78;
     }
     #printArea .note { margin: 6px 0 0; font-size: 8.5pt; color: #777; }
+    /* The gutter the pinned code sits in. The code is out of the flow, so
+       nothing gets pushed aside for it and everything else has to keep out
+       of its way; on the physical left in both languages, because that is
+       where the code is.
+
+       All three blocks that can reach the bottom band, not just the footer.
+       The footer alone was enough while a sheet stopped at 231mm of the
+       269mm page and the code sat in empty paper below it. Now that the map
+       is scaled to fill the page the bottom band is occupied, and the picked
+       total and the no-kerb note are down there with the footer.
+
+       A gutter rather than a full-width band along the bottom, because a
+       band would add its own height to every sheet; this costs only what the
+       three lines lose in width. */
+    #printArea .picked-total, #printArea .note, #printArea .foot {
+      padding-left: 34mm;
+    }
     #printArea .foot {
       margin-top: 18px; padding-top: 6px; border-top: 1pt solid #ccd2cd;
       font-size: 8pt; color: #555;
-      /* A gutter the pinned code sits in. The code is out of the flow, so this
-         is the only thing keeping the footer's own text off it -- and it has
-         to be on the physical left in both languages, because that is where
-         the code is. A gutter rather than a full-width band along the bottom,
-         because a band would add its height to every sheet and there is none
-         to spare: measured against the real stylesheet, an ordinary parcel's
-         sheet is 231mm of A4's 269mm, and one with a full twelve-row side
-         column is 282mm, which already runs onto a second page before any of
-         this was added. The gutter costs nothing -- both figures are the same
-         with it as without. */
-      padding-left: 34mm;
     }
     #printArea .foot p { margin: 0 0 3px; }
     /* Pinned to the bottom-left of the printed page rather than set in the
        footer's flow, so it adds nothing to the sheet's height and cannot push
        it onto another page. Fixed position in print resolves against the page
        box, so left/bottom 0 is the inside corner of the 14mm @page margin.
-       On a sheet that runs to two pages -- which a twelve-row side column
-       already does -- a fixed element repeats, so the code is drawn on both,
-       and on the first it can land over the side tables. That is worth fixing
-       by making those sheets fit one page, not by moving the code.
+       A fixed element repeats on every page, so on a sheet that ran to two
+       the code would be drawn on both, and on the first it could land over
+       the side tables. fitToPage is what stops that: it keeps the sheet to
+       one page, and where it cannot it still keeps the tables out of this
+       corner.
        Wider than the code it holds, so the coordinates underneath stay on one
        line. The code itself is 24mm: 37 modules plus a four-module quiet zone
        each side is 0.53mm a module, which a phone camera reads off paper at
@@ -1310,7 +1333,22 @@ svg.leaflet-zoom-animated{will-change:transform;}
       background: #f6f8f6;
       -webkit-print-color-adjust: exact; print-color-adjust: exact;
     }
+  }
+  /* The three things that really are print-only: hiding the app, revealing
+     the sheet, and the page margins every measurement here is taken
+     against. */
+  @media print {
+    #app { display: none !important; }
+    #printArea { display: block; }
     @page { margin: 14mm; }
+  }
+  /* The sheet laid out so it can be measured: off the side of the screen, at
+     the width it has on paper -- A4 less those 14mm margins -- so the height
+     that comes back is the height it will print at. Beats #printArea on
+     specificity, which is what lets it override the display:none. */
+  #printArea.measuring {
+    display: block; position: fixed; left: -4000px; top: 0;
+    box-sizing: border-box; width: 182mm;
   }
 </style>
 </head>
@@ -4255,6 +4293,68 @@ svg.leaflet-zoom-animated{will-change:transform;}
     return { metres, px: metres / mPerPx };
   }
 
+  // A4 less the 14mm margins @page sets, in the CSS px print works in at
+  // 96dpi -- and then 2mm short of that. The 2mm is for everybody else's
+  // rounding: ours here, the browser's layout, and the printer's own idea of
+  // where the page ends. A sheet that fits by a tenth of a millimetre is a
+  // sheet that comes out on two pages on somebody else's printer. Floor
+  // rather than round for the same reason -- rounding up aimed 0.08mm past
+  // the edge of the paper.
+  const PAGE_PX = Math.floor(((297 - 28 - 2) / 25.4) * 96);
+  // Under about two thirds the map stops earning the room it takes, so a
+  // parcel with a side list longer than the map can pay for gets its second
+  // page rather than a map too small to read.
+  const MIN_PLAN_SCALE = 2 / 3;
+
+  // Keep the sheet on one page by taking whatever is over out of the map.
+  //
+  // How tall the sheet comes out depends on the parcel's own names: a long
+  // street name wraps a cell of the facts panel, a long heading takes two
+  // lines, the no-kerb-layer note is there or it is not. Between the lightest
+  // and heaviest of those the furniture moves by 26mm of a 269mm page, so
+  // predicting it with constants means assuming the worst of every sheet and
+  // shrinking maps that had room to spare. Measuring costs one layout and is
+  // exact.
+  //
+  // Two things can be over, and the map pays for both, because shrinking it
+  // lifts everything underneath it:
+  //
+  //  - the sheet can be taller than the page;
+  //  - the side tables can reach down into the corner the code sits in. The
+  //    blocks under the map keep a 34mm gutter clear on the left for it, but
+  //    the tables cannot -- three columns of them need the full width -- so
+  //    when there are three they have to end above the code instead.
+  //
+  // One pass, not a loop: the map sits centred in a wrapper of its own, so
+  // scaling it moves nothing else sideways, and everything below it rises by
+  // exactly the height the map gave up.
+  function fitToPage(area) {
+    area.classList.add("measuring");
+    const box = area.getBoundingClientRect();
+    const code = area.querySelector(".qr-block");
+    const band = code ? code.offsetHeight : 0;
+    const column = code ? code.offsetWidth : 0;
+    // Only the tables that actually reach into that column. One or two of
+    // them sit centred, well clear of it; it takes three to reach the edge.
+    let tables = 0;
+    for (const t of area.querySelectorAll("table.sides")) {
+      const b = t.getBoundingClientRect();
+      if (b.left - box.left < column) tables = Math.max(tables, b.bottom - box.top);
+    }
+    const excess = Math.max(area.scrollHeight - PAGE_PX,
+                            tables ? tables - (PAGE_PX - band) : 0);
+    area.classList.remove("measuring");
+    if (excess <= 0) return;
+    const fit = area.querySelector(".plan-fit");
+    const plan = area.querySelector(".plan");
+    // Nothing to give: a parcel whose ring was too degenerate to put on a
+    // basemap gets the plain outline instead, and that is already small.
+    if (!fit || !plan) return;
+    const scale = Math.max(MIN_PLAN_SCALE, 1 - excess / (PRINT_H + 2));
+    fit.style.height = `${Math.ceil((PRINT_H + 2) * scale)}px`;
+    plan.style.transform = `scale(${scale})`;
+  }
+
   // ---- QR code -----------------------------------------------------------
   // A printed sheet is a dead end: it names a parcel and gives no way to go
   // and stand on it. The coordinates are on the sheet, but nobody types
@@ -5145,7 +5245,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const bar = printScaleBar(zoom, L.latLngBounds(props.geom.coordinates[0].map(([lo, la]) => L.latLng(la, lo))).getCenter().lat);
     const by0 = PRINT_H - 16;
 
-    return `<div class="plan">${imgs}
+    // Two boxes, because the map may have to be scaled down to keep the
+    // sheet on one page and a transform changes what is painted, not what is
+    // laid out. The wrapper is the space the map takes up on the sheet and
+    // fitToPage adjusts it; the map inside is always drawn at 620x430. Plus
+    // the 1px border each side. Everything in the map scales together, so
+    // the scale bar and the north arrow stay true at any size.
+    return `<div class="plan-fit" style="height:${PRINT_H + 2}px">
+      <div class="plan">${imgs}
       <svg viewBox="0 0 ${PRINT_W} ${PRINT_H}" xmlns="http://www.w3.org/2000/svg">
         ${context}
         ${kerbs}
@@ -5165,7 +5272,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
         </g>
       </svg>
       <span class="attrib">${plan.sat ? "Imagery © Esri" : "© OpenStreetMap"}</span>
-    </div>`;
+    </div></div>`;
   }
 
   // Chrome will happily print before tiles arrive, so wait for them (briefly --
@@ -5198,14 +5305,30 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // A column of 24 dashes is not information. The setback column appears only
     // when some side actually has one.
     const anySetback = props.sides.some((s) => setbacks.has(s.n));
-    // Long lists ran down a whole second page one row at a time. Split into
-    // columns of at most 12 so a 24-sided parcel is two short columns, not a
-    // ribbon.
-    // Balanced, not filled: at 12 per column a 13-sided parcel gave a full
-    // column beside a single stray row, which reads as a mistake. Columns of
-    // seven and six do not.
-    const PER_COL = 12;
-    const colCount = Math.max(1, Math.ceil(props.sides.length / PER_COL));
+    // Long lists ran down a whole second page one row at a time, so they go
+    // in columns side by side. Eight rows a column, three columns at most.
+    //
+    // Three because of the width: the sheet has 174mm of content, a column
+    // with the setback column in it measures 48.9mm, and a fourth wraps to a
+    // second row of tables -- taller than the column it was meant to shorten.
+    //
+    // Eight rather than twelve because of what a row costs in height: 6.5mm
+    // of a 269mm page, against a map worth 121mm and furniture worth 76mm to
+    // 102mm depending on how long the parcel's names are. Twelve rows came
+    // to 282mm and spilled onto a second page. Eight is 24 sides in three
+    // columns -- the widest list this sheet has had to lay out -- and leaves
+    // the map at full size on an ordinary sheet.
+    //
+    // Width is the cheaper of the two, which is why the columns are filled
+    // first and fitToPage only shrinks the map once they are full.
+    //
+    // Balanced, not filled: at eight per column a nine-sided parcel would be
+    // a full column beside a single stray row, which reads as a mistake.
+    // Five and four do not.
+    const ROWS_PER_COL = 8;
+    const MAX_COLS = 3;
+    const colCount = Math.min(MAX_COLS,
+      Math.max(1, Math.ceil(props.sides.length / ROWS_PER_COL)));
     const per = Math.ceil(props.sides.length / colCount);
     const cols = [];
     for (let i = 0; i < props.sides.length; i += per) cols.push(props.sides.slice(i, i + per));
@@ -5256,7 +5379,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
     const mapUrl = mapsUrl(props);
     const centre = mapUrl ? plotCentre(props.geom) : null;
 
-    document.getElementById("printArea").innerHTML = `
+    const sheet = document.getElementById("printArea");
+    sheet.innerHTML = `
       <div class="masthead">
         <span class="mark">${t("brand")}</span>
         <span class="doctype">${t("printDocType")}</span>
@@ -5291,6 +5415,11 @@ svg.leaflet-zoom-animated{will-change:transform;}
         <span class="qr-coords">${centre[1].toFixed(6)}, ${centre[0].toFixed(6)}</span>
       </div>` : ""}
     `;
+    // Measured and fitted before the tiles are waited on, because the tiles
+    // are positioned inside a box of fixed size and cannot change the
+    // height -- and because there must be no paint between building the
+    // sheet and fitting it.
+    fitToPage(sheet);
     if (plan) await preloadTiles(plan.urls.map((u) => u.url));
     window.print();
   }
