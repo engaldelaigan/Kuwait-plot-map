@@ -3566,19 +3566,58 @@ svg.leaflet-zoom-animated{will-change:transform;}
   const unpadBlock = (s) =>
     s.split("+").map((part) => part.trim().replace(/^0+(?=\d)/, "")).join("+");
 
+  // Sabah Al-Ahmad Sea City has five residential phases, and the municipality
+  // files them with a letter: A1 to A5. Nobody there uses it. Al Mithaq, who
+  // sell in the city and build their plans from the same cadastral layer,
+  // publish them as Phase 1 to Phase 5 and المرحلة الأولى to المرحلة الخامسة.
+  //
+  // Their parcel counts line up with ours phase for phase -- 1,271 against
+  // 1,369, 1,000 against 1,081, 2,170 against 2,272, 2,203 against 2,290,
+  // 3,333 against 3,478. Ours run a steady 4-8% higher across all five, which
+  // is what counting every parcel rather than every saleable plot looks like,
+  // and nothing is reordered: smallest stays smallest, largest largest. So
+  // the mapping is read off the data, not guessed at.
+  //
+  // Both spellings of A3, because the layer runs the word and the letter
+  // together in that one.
+  //
+  // The B blocks are left alone. They are not phases 1 to 5 under another
+  // name: they lie west and south of the A phases, B5-3-1 alone holds 3,454
+  // parcels, and Al Mithaq -- who sell there -- say the city has five phases,
+  // A1 to A5. Folding B1 into "phase 1" would invent a fact that the source
+  // this naming comes from contradicts.
+  const SEA_CITY_PHASES = new Map([
+    ["المرحلة A1", ["المرحلة الأولى", "Phase 1", 1]],
+    ["المرحلة A2", ["المرحلة الثانية", "Phase 2", 2]],
+    ["المرحلة A3", ["المرحلة الثالثة", "Phase 3", 3]],
+    ["المرحلةA3", ["المرحلة الثالثة", "Phase 3", 3]],
+    ["المرحلة A4", ["المرحلة الرابعة", "Phase 4", 4]],
+    ["المرحلة A5", ["المرحلة الخامسة", "Phase 5", 5]],
+  ]);
+
   const blockCache = new Map();
 
   function parseBlock(raw) {
-    const key = String(raw ?? "");
+    // Keyed by language as well as by the string. Everything else this
+    // returns reads the same in both, but a phase does not, and one cache
+    // for both languages would hand back whichever was asked for first.
+    const key = `${lang}\u0000${raw ?? ""}`;
     const cached = blockCache.get(key);
     if (cached) return cached;
 
-    let s = key.replace(/[\t ]+/g, " ").replace(/\s+/g, " ").trim();
+    let s = String(raw ?? "").replace(/[\t ]+/g, " ").replace(/\s+/g, " ").trim();
     // "-1" is the layer's way of saying the parcel is in no block -- chalet
     // strips, farmland, the islands. Labelling 3,545 parcels "القطعة -1" says
     // less than labelling them nothing.
     let out;
-    if (!s || s === "-1") out = { none: true, num: "", short: "", long: "", sort: null };
+    const phase = SEA_CITY_PHASES.get(s);
+    if (phase) {
+      // A name rather than a number, so it wants no "القطعة" in front of it
+      // and no suburb after it -- which is why it is taken whole here
+      // instead of going through the parsing below.
+      const name = phase[lang === "ar" ? 0 : 1];
+      out = { num: name, short: name, long: name, sort: phase[2] };
+    } else if (!s || s === "-1") out = { none: true, num: "", short: "", long: "", sort: null };
     else if (/^\d+$/.test(s)) {
       const n = String(Number(s));
       out = { num: n, short: n, long: n, sort: Number(s) };
@@ -6719,12 +6758,42 @@ svg.leaflet-zoom-animated{will-change:transform;}
       nbhRows = order.map((i) => nbhRows[i]);
       for (const o of opts) selNbh.appendChild(o);
     }
+    // The block list is labelled from its own option values, so it can be
+    // relabelled in place. It had been left out of this sweep because what it
+    // shows reads much the same in both languages; a phase does not, and a
+    // list built in Arabic would have gone on saying المرحلة الأولى in
+    // English.
+    if (selBlk.options.length > 1) {
+      const opts = [...selBlk.options].slice(1);
+      const label = blockLabeller(opts.map((o) => o.value));
+      for (const o of opts) o.textContent = label(o.value);
+    }
     // The comboboxes show the option text, so they have to be repainted after
     // a language switch or they keep the previous language's labels.
     for (const s of [selGov, selNbh, selBlk, selPar]) s._combo?.sync();
     // Same for the note under them, which holds a key rather than a sentence
     // precisely so this works.
     if (blkNoteKey) setBlkNote(blkNoteKey, blkNoteOpts);
+  }
+
+  // Two different block values can reduce to the same label. Mutlaa files one
+  // block as both "Area9(N9)4" and "قطعة 4 (N9) الضاحية التاسعة", and each
+  // reads "4 · N9"; Farwaniya and Amghara have a pair apiece, down to a stray
+  // space in "Gov -5". Offered twice under one name there is no way to tell
+  // them apart, and no sign that picking the wrong one shows a fraction of
+  // the block: in Sabah Al-Ahmad "A2" holds a single parcel beside the
+  // thousand in "المرحلة A2".
+  //
+  // So where a label is shared, each option wears its own spelling instead.
+  // Three blocks in the country. Merging them into one entry would be the
+  // better answer and a much larger change -- the parcel list, the extent and
+  // the report would each have to ask for every spelling -- and it would
+  // still be guessing that two spellings mean one block, which a 1-against-
+  // 1,000 split is not evidence for either way.
+  function blockLabeller(values) {
+    const byLabel = new Map();
+    for (const v of values) byLabel.set(blockLong(v), (byLabel.get(blockLong(v)) ?? 0) + 1);
+    return (v) => (byLabel.get(blockLong(v)) > 1 ? v : blockLong(v));
   }
 
   function fillSelect(sel, placeholder, items, valueOf, labelOf) {
@@ -7332,24 +7401,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
         if ((pa.sort == null) !== (pb.sort == null)) return pa.sort == null ? 1 : -1;
         return pa.long.localeCompare(pb.long, lang === "ar" ? "ar" : "en");
       });
-    // Two different block values can reduce to the same label. Mutlaa files
-    // one block as both "Area9(N9)4" and "قطعة 4 (N9) الضاحية التاسعة", and
-    // each reads "4 · N9"; Farwaniya and Amghara have a pair apiece, down to
-    // a stray space in "Gov -5". Offered twice under one name there is no way
-    // to tell them apart, and no sign that picking the wrong one shows a
-    // fraction of the block: in Sabah Al-Ahmad "A2" holds a single parcel
-    // beside the thousand in "المرحلة A2".
-    //
-    // So where a label is shared, each option wears its own spelling instead.
-    // Three blocks in the country today. Merging them into one entry would be
-    // the better answer and a much larger change -- the parcel list, the
-    // extent and the report would each have to ask for every spelling -- and
-    // it would still be guessing that two spellings mean one block, which the
-    // 1-against-1,000 split is not evidence for either way.
-    const byLabel = new Map();
-    for (const b of blocks) byLabel.set(blockLong(b), (byLabel.get(blockLong(b)) ?? 0) + 1);
-    fillSelect(selBlk, t("selBlk"), blocks, (x) => x,
-      (x) => (byLabel.get(blockLong(x)) > 1 ? x : blockLong(x)));
+    fillSelect(selBlk, t("selBlk"), blocks, (x) => x, blockLabeller(blocks));
 
     // A city that answered, and has nothing numbered to offer. Not an error,
     // and the useful thing to say is not "empty" but what to do instead: the
