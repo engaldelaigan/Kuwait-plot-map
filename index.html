@@ -7332,7 +7332,24 @@ svg.leaflet-zoom-animated{will-change:transform;}
         if ((pa.sort == null) !== (pb.sort == null)) return pa.sort == null ? 1 : -1;
         return pa.long.localeCompare(pb.long, lang === "ar" ? "ar" : "en");
       });
-    fillSelect(selBlk, t("selBlk"), blocks, (x) => x, (x) => blockLong(x));
+    // Two different block values can reduce to the same label. Mutlaa files
+    // one block as both "Area9(N9)4" and "قطعة 4 (N9) الضاحية التاسعة", and
+    // each reads "4 · N9"; Farwaniya and Amghara have a pair apiece, down to
+    // a stray space in "Gov -5". Offered twice under one name there is no way
+    // to tell them apart, and no sign that picking the wrong one shows a
+    // fraction of the block: in Sabah Al-Ahmad "A2" holds a single parcel
+    // beside the thousand in "المرحلة A2".
+    //
+    // So where a label is shared, each option wears its own spelling instead.
+    // Three blocks in the country today. Merging them into one entry would be
+    // the better answer and a much larger change -- the parcel list, the
+    // extent and the report would each have to ask for every spelling -- and
+    // it would still be guessing that two spellings mean one block, which the
+    // 1-against-1,000 split is not evidence for either way.
+    const byLabel = new Map();
+    for (const b of blocks) byLabel.set(blockLong(b), (byLabel.get(blockLong(b)) ?? 0) + 1);
+    fillSelect(selBlk, t("selBlk"), blocks, (x) => x,
+      (x) => (byLabel.get(blockLong(x)) > 1 ? x : blockLong(x)));
 
     // A city that answered, and has nothing numbered to offer. Not an error,
     // and the useful thing to say is not "empty" but what to do instead: the
