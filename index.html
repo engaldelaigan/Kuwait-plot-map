@@ -5138,6 +5138,18 @@ svg.leaflet-zoom-animated{will-change:transform;}
     "building=industrial": ["مبنى صناعي", "Industrial building"],
     "building=apartments": ["عمارة سكنية", "Apartment building"],
     "landuse=industrial": ["منطقة صناعية", "Industrial land"],
+    // Roads, for the parcels that are one. These arrive from fillOsmRoads,
+    // which matches a way running through a parcel rather than a point
+    // standing in it -- a street has no centre that means anything, so the
+    // POI sync never saw one. On Hawalli parcel 8 this is the line that says
+    // outright what the shape of the thing only implied.
+    "highway=service": ["طريق خدمة", "Service road"],
+    "highway=residential": ["شارع سكني", "Residential street"],
+    "highway=living_street": ["شارع سكني هادئ", "Living street"],
+    "highway=pedestrian": ["شارع مشاة", "Pedestrian street"],
+    "highway=footway": ["ممر مشاة", "Footpath"],
+    "highway=path": ["ممر", "Path"],
+    "highway=track": ["طريق ترابي", "Track"],
   };
 
   // One function, because the panel's button and the printed QR code have to
