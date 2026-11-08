@@ -1621,6 +1621,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       sidesPicked: (n) => (n === 1 ? "ضلع واحد" : n === 2 ? "ضلعان" : `${n.toLocaleString("ar-EG")} أضلاع`),
       clearPicks: "إلغاء",
       manualSource: "تصنيف يدوي",
+      areaComputed: "محسوبة من حدود القسيمة",
+      kindVsUse: (u) => `نوع القسيمة لدى البلدية · والاستخدام المسجَّل عليها: ${u}`,
       correctType: "تصحيح التصنيف",
       typeUnset: "— بدون —",
       notePh: "ملاحظة (اختياري)",
@@ -1775,6 +1777,8 @@ svg.leaflet-zoom-animated{will-change:transform;}
       sidesPicked: (n) => `${n} side${n === 1 ? "" : "s"}`,
       clearPicks: "Clear",
       manualSource: "Set by hand",
+      areaComputed: "Computed from the outline",
+      kindVsUse: (u) => `The municipality's parcel kind &middot; the use recorded on it: ${u}`,
       correctType: "Correct the type",
       typeUnset: "— none —",
       notePh: "Note (optional)",
@@ -4980,6 +4984,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
       return `${esc(label)}${note}<span class="src-note">${t("manualSource")}</span>`;
     }
     const exact = props.land_use != null ? landUseNames?.get(props.land_use) : null;
+    // The parcel's own kind leads, because it is a statement about this shape
+    // rather than about the block around it, and the recorded use follows it
+    // instead of being dropped: both are in the municipality's data, and the
+    // reader is owed the chance to see which of them is which. The same
+    // treatment a hand correction gets, for the same reason.
+    if (useConflict(props)) {
+      const own = KIND_LABELS[props.category][lang === "ar" ? 0 : 1];
+      return `${own}<span class="src-note">${t("kindVsUse", exact ?? "&mdash;")}</span>`;
+    }
     if (exact) return exact;
     // No recorded use, but the master plan has one. Named exactly and labelled
     // as the plan, because it is a different kind of fact: what the parcel may
@@ -5020,6 +5033,47 @@ svg.leaflet-zoom-animated{will-change:transform;}
     pathway: ["سكة", "Pathway"],
     shared: ["مشاع", "Shared parcel"],
   };
+
+  // The kinds that are not anybody's plot. The municipality states these in
+  // `subtype`, which the server turns into `category`: 1 is a setback strip,
+  // 2 a pathway, 11 a shared parcel, 5 public land with no title of its own,
+  // and parks and cemeteries say what they are. None of them is land a person
+  // owns, builds on, or needs a distance to the street for.
+  const NOT_A_PLOT = new Set([
+    "setback", "pathway", "shared", "public_other", "park", "cemetery",
+  ]);
+
+  // What a land-use code claims when it lands in one of these: private land,
+  // built on or buildable. Exactly the claims the kinds above contradict.
+  // Government and gardens are left out because they agree with them.
+  const PRIVATE_USE = new Set([
+    "residential", "investment", "mixed", "commercial", "industrial", "storage",
+  ]);
+
+  // Two official fields disagreeing about what a piece of land is. `subtype`
+  // describes the parcel -- what the municipality filed this shape as -- and
+  // `land_use` is the use recorded against it, which on public land is the
+  // zoning of the block around it rather than a statement about the parcel.
+  //
+  // Hawalli parcel 8 is the cul-de-sac between seven houses in block 42:
+  // subtype 5, public land with no title, and land_use 3, which the panel
+  // printed on its own as "سكن استثماري" -- an investment building, on a
+  // street. Four independent things say street: no recorded area while all
+  // seven of its neighbours have one, 20 vertices against their 4 to 7, a
+  // compactness of 0.21 against their 0.75-0.81, and OpenStreetMap's
+  // highway=service running down it.
+  const useConflict = (p) =>
+    !!p && NOT_A_PLOT.has(p.category) && PRIVATE_USE.has(p.land_bucket);
+
+  // Said out loud wherever the area on screen was derived from the polygon
+  // instead of recorded by the municipality. 223 of Hawalli's 2,957 parcels
+  // (7.5%) have no recorded area, and the panel was printing the computed
+  // figure in the same voice as an official one. Usually it is close; on a
+  // parcel whose boundary is the edge of a road it is not a plot area at all.
+  const areaNote = (p) =>
+    p.measured_area == null && p.computed_area != null
+      ? `<span class="src-note">${t("areaComputed")}</span>`
+      : "";
 
   // The OpenStreetMap row, shown only where it adds something. For مجمع
   // الصالحية this is the only line in the panel that answers the question --
@@ -5231,14 +5285,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
       // Official area from the municipality; the value computed from the
       // polygon is only a fallback where they publish none, because a derived
       // 1000.1 against a recorded 1000 reads as an error.
-      row(t("area"), fmtNum(props.measured_area ?? props.computed_area, "m&sup2;")) +
+      row(t("area"), fmtNum(props.measured_area ?? props.computed_area, "m&sup2;") + areaNote(props)) +
       // The exact use, not the bucket. Plots sharing the "other" colour are
       // precisely the ones where this matters -- it is the only place their
       // classification is visible.
       row(t("landUse"), landUseText(props)) +
       osmRow(props) +
       // Filled in below: it needs a round trip, and the panel should not wait.
-      `<div><dt>${t("setback")}</dt><dd id="setbackVal">…</dd></div>` +
+      // Left out entirely for land that is not a plot. A distance to the street
+      // describes where a building may stand; measured from a street to itself
+      // it is a number with no meaning, and parcel 8 was reporting 4.5 m.
+      (NOT_A_PLOT.has(props.category)
+        ? ""
+        : `<div><dt>${t("setback")}</dt><dd id="setbackVal">…</dd></div>`) +
       `<div><dt>${sidesLabel}</dt>${sidesHtml}` +
       `<dd id="sideTotal" class="side-total" hidden></dd></div>` +
       `<dd class="actions" style="margin-top:10px;"><button id="printBtn" type="button">${t("print")}</button>` +
@@ -5258,11 +5317,15 @@ svg.leaflet-zoom-animated{will-change:transform;}
     });
     wireCorrection(props);
     wireSidePicking(props);
-    loadSetback(props.global_id);
+    // Still called where the row is gone, with nothing to look up: bumping the
+    // sequence is what stops a reply still in flight for the previous parcel
+    // from landing in this panel.
+    loadSetback(NOT_A_PLOT.has(props.category) ? null : props.global_id);
     // With الارتداد switched on, selecting a plot draws its setbacks straight
     // away -- the point of leaving the mode on is not having to press the
-    // button again for every plot.
-    if (setbackMode) autoSetback();
+    // button again for every plot. Not for a pathway or a setback strip: the
+    // panel does not claim a distance there, so the map should not draw one.
+    if (setbackMode && !NOT_A_PLOT.has(props.category)) autoSetback();
   }
 
   // ---- Adding up sides ----------------------------------------------------
@@ -5779,7 +5842,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
         ${cell(t("neighborhood"), nbh ?? "—")}
         ${cell(t("street"), street ?? "—")}
         ${cell(t("house"), props.house_no ?? "—")}
-        ${cell(t("area"), area == null ? "—" : num(fmtNum(area, "m&sup2;")))}
+        ${cell(t("area"), area == null ? "—" : num(fmtNum(area, "m&sup2;")) + areaNote(props))}
         ${cell(t("landUse"), landUseText(props))}
         ${cell(t("perimeter"), num(fmtSide(perimeter)))}
       </div>
@@ -5976,6 +6039,12 @@ svg.leaflet-zoom-animated{will-change:transform;}
     // source where a person actually looked at the plot.
     if (p.manual_bucket) return p.manual_bucket;
     if (p.category === "park" || p.land_class === 2) return "gardens";
+    // A land use that contradicts the parcel's own kind is the surrounding
+    // block's zoning leaking onto a piece of land that is not a plot, so the
+    // kind takes the colour as well as the panel row. Without this the
+    // cul-de-sac in Hawalli block 42 was drawn in the investment colour while
+    // the panel open beside it called it public land.
+    if (useConflict(p)) return KIND_TYPE[p.category] ?? "other";
     if (p.land_bucket && MAIN_TYPES.includes(p.land_bucket)) return p.land_bucket;
     if (p.land_bucket === "other" || p.land_use != null) return "other";
     // No land use -- but the parcel's own kind often says plenty, and we were
