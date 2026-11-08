@@ -6425,16 +6425,19 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // the municipality stored differ in ways that carry no meaning: أ/إ/آ for ا,
   // ى for ي, ة for ه, and the leading ال that is in the stored name but rarely
   // in what is typed. Without this, "سالمية" does not find "السالمية".
-  const normAr = (s) =>
+  // Split in two. foldAr does everything except drop the article, so a name
+  // and a query can each be compared with it and without it; normAr is what
+  // it always was, and is still what places are keyed and grouped on.
+  const foldAr = (s) =>
     String(s ?? "")
       .toLowerCase()
       .replace(/[ً-ْـ]/g, "")
       .replace(/[أإآٱ]/g, "ا")
       .replace(/ى/g, "ي")
       .replace(/ة/g, "ه")
-      .replace(/^ال/, "")
       .replace(/\s+/g, " ")
       .trim();
+  const normAr = (s) => foldAr(s).replace(/^ال/, "");
 
   // Names people use that the municipality does not, each routed to a real
   // neighbourhood. An alias is never an entry of its own: the map keeps
@@ -6451,10 +6454,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
   // map you can use. The fix is the neighbourhood boundaries, not an alias.
   const PLACE_ALIASES = [];
 
-  function aliasHits(s) {
+  function aliasHits(forms) {
     const out = [];
     for (const a of PLACE_ALIASES) {
-      if (!a.terms.some((x) => normAr(x).includes(s) || s.includes(normAr(x)))) continue;
+      if (!a.terms.some((x) => forms.some((s) => normAr(x).includes(s) || s.includes(normAr(x))))) continue;
       const p = groupByCode.get(`${a.gov}|${a.nbh}`);
       if (p) out.push(p);
     }
@@ -6463,16 +6466,47 @@ svg.leaflet-zoom-animated{will-change:transform;}
 
   const tight = (s) => s.replace(/\s+/g, "");
 
+  // Both spellings of the query, and the one that is too short to use is the
+  // one that was being used alone. normAr takes the article off, which is
+  // right for a stored name and wrong for a query halfway through being
+  // typed: "الس" came out as "س", one letter, below the two-character floor,
+  // and matched nothing at all -- so a name typed from its own beginning was
+  // unfindable until the fourth letter, and the suggestions a reader had
+  // already seen vanished as they kept typing. Now the article comes off
+  // only while what is left still says something, and either form may match.
+  const queryForms = (term) => {
+    const full = foldAr(term), bare = normAr(term);
+    return [...new Set([full, bare.length >= 2 ? bare : full])].filter((x) => x.length >= 2);
+  };
+
+  // Lower is better, -1 is no match: the name as stored, then the name
+  // without its article, each tried against each form of the query, and the
+  // best of them kept.
+  function placeRank(p, forms) {
+    const names = [foldAr(p.name_ar), normAr(p.name_ar), foldAr(p.name_en), normAr(p.name_en)]
+      .filter(Boolean);
+    let best = -1;
+    for (const s of forms) {
+      for (const nm of names) {
+        const r = nm === s ? 0
+          : nm.startsWith(s) ? 1
+          : nm.includes(s) ? 2
+          : tight(nm).includes(tight(s)) ? 3
+          : -1;
+        if (r >= 0 && (best < 0 || r < best)) best = r;
+      }
+    }
+    return best;
+  }
+
   function matchPlaces(term) {
-    const s = normAr(term);
-    if (s.length < 2 || !placeGroups.length) return [];
+    const forms = queryForms(term);
+    if (!forms.length || !placeGroups.length) return [];
     const scored = [];
     // Aliases rank with exact matches: someone typing بنيدر wants that coast,
     // not whatever else happens to contain the letters.
-    for (const p of aliasHits(s)) scored.push({ rank: 0, p });
+    for (const p of aliasHits(forms)) scored.push({ rank: 0, p });
     for (const p of placeGroups) {
-      const ar = normAr(p.name_ar);
-      const en = normAr(p.name_en);
       // Exact first, then prefix, then anywhere -- typing "جهراء" should put
       // الجهراء above الجهراء الصناعية, not leave the order to plot counts.
       // Spacing in these names is not meaningful and is not written
@@ -6480,12 +6514,7 @@ svg.leaflet-zoom-animated{will-change:transform;}
       // types -- they type "سعد العبدالله" and found nothing. Compared again
       // with spaces removed, ranked below the real matches, so an exact name
       // still wins.
-      const rank =
-        ar === s || en === s ? 0
-        : ar.startsWith(s) || en.startsWith(s) ? 1
-        : ar.includes(s) || en.includes(s) ? 2
-        : tight(ar).includes(tight(s)) || tight(en).includes(tight(s)) ? 3
-        : -1;
+      const rank = placeRank(p, forms);
       if (rank >= 0) scored.push({ rank, p });
     }
     scored.sort((a, b) => a.rank - b.rank || b.p.plot_count - a.p.plot_count);
@@ -6577,7 +6606,9 @@ svg.leaflet-zoom-animated{will-change:transform;}
       // certain is listed, places first, because a parcel match is a guess at
       // which parcel while a place match is the area itself.
       const places = matchPlaces(term);
-      const exact = [normAr(places[0]?.name_ar), normAr(places[0]?.name_en)].includes(normAr(term));
+      const exact = places.length
+        ? placeRank(places[0], queryForms(term)) === 0
+        : false;
       if (places.length === 1 && exact) {
         hideResults();
         track("search_hit", { gov: places[0].gov_no, nbh: places[0].nbhood_no, detail: term });
@@ -7134,8 +7165,10 @@ svg.leaflet-zoom-animated{will-change:transform;}
       wrap.classList.add("open");
       place();
     }
-    // Reflowing a detached list on every resize is not worth it; closing is.
-    window.addEventListener("resize", () => { if (!list.hidden) close(); });
+    // A phone keyboard sliding up is a resize, and closing the list there
+    // shut it the instant the user went to type in it. Re-placed instead,
+    // which is the same work a keystroke already does.
+    window.addEventListener("resize", () => { if (!list.hidden) place(); });
 
     input.addEventListener("focus", () => {
       if (sel.disabled) return;
@@ -7146,7 +7179,20 @@ svg.leaflet-zoom-animated{will-change:transform;}
     input.addEventListener("click", () => {
       if (!sel.disabled && list.hidden) open("");
     });
-    input.addEventListener("input", () => { active = 0; render(input.value); list.hidden = false; });
+    // place() as well as render(): the list is positioned in viewport
+    // coordinates, and when it is flipped above the field its top is worked
+    // out from its own height -- so a list that was 186 names tall when the
+    // field took focus keeps the top edge it had then. Type a second letter,
+    // the list shrinks to one row, and that row stays where the top of the
+    // tall list was: pinned near y=6, a screen away from the box being typed
+    // in, or behind the top bar on a phone. It had not gone anywhere. It was
+    // being drawn where it no longer belonged.
+    input.addEventListener("input", () => {
+      active = 0;
+      render(input.value);
+      list.hidden = false; // must be laid out before it can be measured
+      place();
+    });
     input.addEventListener("blur", () => setTimeout(() => { close(); sync(); }, 120));
     input.addEventListener("keydown", (e) => {
       const items = [...list.querySelectorAll("li[data-value]")];
