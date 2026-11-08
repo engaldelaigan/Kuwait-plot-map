@@ -5023,7 +5023,14 @@ svg.leaflet-zoom-animated{will-change:transform;}
     education: ["مبنى تعليمي", "Educational building"],
     government: ["مبنى حكومي", "Government building"],
     religious: ["مسجد", "Religious building"],
-    public_other: ["مبنى عام", "Public building"],
+    // Not "مبنى عام". Subtype 5 is the municipality's public and service
+    // class, and public_other is what is left of it once the titles that name
+    // a garden, cemetery, co-op, ministry, mosque or school have been picked
+    // off -- covered passageways, car parks, verges, the land a cul-de-sac is
+    // made of, and parcels with no title at all. Calling that a building put a
+    // building on a street. Where there really is one the panel has a title
+    // row of its own to name it.
+    public_other: ["أرض عامة", "Public land"],
     coop: ["جمعية", "Co-operative"],
     industrial: ["مبنى صناعي", "Industrial building"],
     farm: ["مزرعة", "Farm"],
